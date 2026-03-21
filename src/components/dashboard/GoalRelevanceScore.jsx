@@ -123,10 +123,20 @@ export default function GoalRelevanceScore({ className }) {
         )}
       </div>
 
-      <div className="mt-4 mb-6 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2">
         <Target size={12} color="#DFE104" />
         <span className="text-xs uppercase tracking-widest text-[#A1A1AA]">
           CONTENT MATCHED AGAINST: {storedFocusArea.toUpperCase()}
+        </span>
+      </div>
+
+      <div style={{ display:'flex', alignItems:'center', gap:'6px', 
+                    marginTop:'6px', marginBottom:'1.5rem' }}>
+        <Info size={11} color="#3F3F46" />
+        <span style={{ fontSize:'10px', color:'#3F3F46', 
+                       textTransform:'uppercase', letterSpacing:'0.08em' }}>
+          YOUTUBE: video titles classified · INSTAGRAM: creator 
+          diversity only — titles not available in export
         </span>
       </div>
 
@@ -148,6 +158,17 @@ export default function GoalRelevanceScore({ className }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={{ display:'flex', alignItems:'center', gap:'6px',
+                    marginTop:'0.75rem', marginBottom:'1.5rem' }}>
+        <Info size={10} color="#3F3F46" />
+        <span style={{ fontSize:'10px', color:'#3F3F46',
+                       textTransform:'uppercase', letterSpacing:'0.07em',
+                       lineHeight:'1.5' }}>
+          GOAL SCORE IS BASED ON YOUTUBE WATCH HISTORY · 
+          INSTAGRAM DATA DOES NOT INCLUDE VIDEO TITLES
+        </span>
       </div>
 
       <div className="flex items-center gap-1.5 mb-6">

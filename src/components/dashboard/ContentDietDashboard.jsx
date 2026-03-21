@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, Target, PlayCircle, ChevronDown, Plus, EyeOff } from 'lucide-react';
+import { Clock, Target, PlayCircle, ChevronDown, Plus, EyeOff, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useYouTubeData } from '../../hooks/useYouTubeData';
 import YouTubeConnectPrompt from './YouTubeConnectPrompt';
@@ -72,6 +72,7 @@ export default function ContentDietDashboard({ className }) {
   const diffTotal = currentWeek.changeVsLastWeek.totalMinutes;
   const diffGoal = currentWeek.changeVsLastWeek.goal;
   const hasHistory = currentWeek.weeksOfData >= 2;
+  const hasInstagram = !!localStorage.getItem('scrollsense_instagram_processed');
 
   const pieData = [
     { name: 'Goal Relevant', value: currentWeek.goal },
@@ -167,7 +168,12 @@ export default function ContentDietDashboard({ className }) {
               <div className="text-xl md:text-3xl font-bold uppercase text-[#FAFAFA]">
                 {currentWeek.totalVideos}
               </div>
-              <div className="text-[10px] md:text-xs uppercase text-[#3F3F46] mt-1">THIS WEEK</div>
+              <div className="flex flex-col mt-1">
+                <span className="text-[10px] text-[#3F3F46] uppercase">YOUTUBE THIS WEEK</span>
+                {hasInstagram && (
+                  <span className="text-[10px] text-[#3F3F46] uppercase mt-0.5">+ INSTAGRAM TIMING</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -194,6 +200,22 @@ export default function ContentDietDashboard({ className }) {
                     <Bar dataKey="junk" fill="#3F3F46" stackId="a" name="Junk" />
                   </BarChart>
                 </ResponsiveContainer>
+                <div style={{ display:'flex', justifyContent:'center', 
+                              alignItems:'center', gap:'16px', marginTop:'8px',
+                              flexWrap:'wrap' }}>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-[#DFE104] inline-block" />
+                    <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
+                      YOUTUBE — VIDEO TITLES CLASSIFIED
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-[#3F3F46] inline-block" />
+                    <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
+                      INSTAGRAM — CREATOR TIMING ONLY
+                    </span>
+                  </div>
+                </div>
               </div>
             )
           ) : (
@@ -248,9 +270,19 @@ export default function ContentDietDashboard({ className }) {
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-1.5 mt-4">
-                  <EyeOff size={11} color="#3F3F46" />
-                  <span className="text-xs text-[#3F3F46]">Channel names are public. Video titles are never stored.</span>
+                <div className="flex flex-col gap-1 mt-4">
+                  <div className="flex items-center gap-1.5">
+                    <EyeOff size={11} color="#3F3F46" />
+                    <span className="text-[10px] text-[#3F3F46] uppercase tracking-wider">
+                      YOUTUBE: video titles classified then discarded — only category label stored
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Info size={11} color="#3F3F46" />
+                    <span className="text-[10px] text-[#3F3F46] uppercase tracking-wider">
+                      INSTAGRAM: creator usernames only — video titles not available in instagram's export
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

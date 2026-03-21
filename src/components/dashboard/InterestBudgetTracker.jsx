@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, Sparkles, Info } from 'lucide-react';
 import { useYouTubeData } from '../../hooks/useYouTubeData';
 import { useNavigate } from 'react-router-dom';
 import YouTubeConnectPrompt from './YouTubeConnectPrompt';
@@ -11,6 +11,15 @@ export default function InterestBudgetTracker({ className }) {
   const { isConnected, isLoading, interests } = useYouTubeData();
   const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState({ h: 0, m: 0 });
+
+  const instagramTopics = (() => {
+    try {
+      const stored = localStorage.getItem('scrollsense_instagram_topics')
+      return stored ? JSON.parse(stored) : []
+    } catch { return [] }
+  })()
+
+  const hasInstagramTopics = instagramTopics.length > 0;
 
   useEffect(() => {
     const updateTimer = () => {
@@ -119,6 +128,83 @@ export default function InterestBudgetTracker({ className }) {
           );
         })}
       </div>
+
+      {hasInstagramTopics && (
+        <div style={{ borderTop: '1px solid #3F3F46', paddingTop: '1.25rem', marginTop: '1.25rem' }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles size={13} color="#A1A1AA" />
+            <span className="text-xs uppercase tracking-widest text-[#A1A1AA]">
+              INSTAGRAM SAYS YOU'RE INTO
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            {instagramTopics.slice(0, 10).map((topic, i) => {
+              const onboarding = JSON.parse(
+                localStorage.getItem('scrollsense_onboarding') || '{}'
+              );
+              const userInterests = (onboarding.interests || [])
+                .map(i => i.label?.toLowerCase());
+              
+              const isMatch = userInterests.some(interest => 
+                topic.toLowerCase().includes(interest) || 
+                interest.includes(topic.toLowerCase())
+              );
+
+              return (
+                <div 
+                  key={i}
+                  className={clsx(
+                    "border px-3 py-1 text-[10px] uppercase tracking-widest rounded-none cursor-default",
+                    isMatch 
+                      ? "border-[#DFE104]/40 text-[#DFE104] bg-[#DFE104]/5" 
+                      : "border-[#27272A] text-[#3F3F46] bg-transparent"
+                  )}
+                >
+                  {topic}
+                </div>
+              );
+            })}
+          </div>
+
+          {(() => {
+            const onboarding = JSON.parse(
+              localStorage.getItem('scrollsense_onboarding') || '{}'
+            );
+            const userInterests = (onboarding.interests || [])
+              .map(i => i.label?.toLowerCase());
+            
+            const matchCount = instagramTopics.slice(0, 10).filter(topic =>
+              userInterests.some(i => 
+                topic.toLowerCase().includes(i) || i.includes(topic.toLowerCase())
+              )
+            ).length;
+            const matchPercent = Math.round(
+              matchCount / Math.min(instagramTopics.length, 10) * 100
+            );
+
+            let pctColor = '#3F3F46';
+            if (matchPercent >= 70) pctColor = '#DFE104';
+            else if (matchPercent >= 40) pctColor = '#A1A1AA';
+
+            return (
+              <div 
+                className="mt-2 mb-3 text-[10px] uppercase tracking-widest font-bold" 
+                style={{ color: pctColor }}
+              >
+                {matchPercent}% OF YOUR DECLARED INTERESTS CONFIRMED BY INSTAGRAM'S ALGORITHM
+              </div>
+            );
+          })()}
+
+          <div className="flex items-center gap-1.5">
+            <Info size={10} color="#3F3F46" />
+            <span className="text-[10px] text-[#3F3F46] uppercase tracking-wider">
+              FROM your_topics.json · INSTAGRAM'S OWN INTEREST LABELS
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="mt-6 pt-6 border-t border-[#3F3F46]">
         <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-4">THIS WEEK AT A GLANCE</div>
