@@ -110,7 +110,7 @@ exports.logout = asyncHandler(async (req, res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
     path: '/api/auth/refresh',
   });
 
@@ -133,7 +133,7 @@ exports.refresh = asyncHandler(async (req, res) => {
   } catch (err) {
     res.clearCookie('refreshToken', { 
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', path: '/api/auth/refresh' 
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', path: '/api/auth/refresh' 
     });
     return res.status(401).json({ 
       error: 'Invalid or expired refresh token',
@@ -154,7 +154,7 @@ exports.refresh = asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(decoded.sub, { refreshTokenHash: null });
     res.clearCookie('refreshToken', {
       httpOnly: true, secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict', path: '/api/auth/refresh'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict', path: '/api/auth/refresh'
     });
     return res.status(401).json({ 
       error: 'Session invalid. Please log in again.',

@@ -278,7 +278,12 @@ exports.deleteAccount = asyncHandler(async (req, res) => {
     return res.status(500).json({ error: 'Deletion failed. Please contact support.' });
   }
 
-  res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+  res.clearCookie('refreshToken', { 
+    httpOnly: true, 
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+    path: '/api/auth/refresh' 
+  });
   console.log(`User deleted account event: ${userId} at ${new Date().toISOString()}`);
 
   res.json({ message: 'Account permanently deleted' });

@@ -17,9 +17,10 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow frontend URL, browser extensions, and requests with no origin
+    // Allow frontend URL, Vercel preview/branch URLs, browser extensions, and requests with no origin
     if (!origin || 
         origin === process.env.FRONTEND_URL || 
+        origin.endsWith('.vercel.app') ||
         origin.startsWith('chrome-extension://') || 
         origin.startsWith('moz-extension://')) {
       callback(null, true);
