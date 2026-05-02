@@ -73,14 +73,18 @@ async function updateBehaviorWeek(userId) {
   await BehaviorWeek.findOneAndUpdate(
     { userId, weekStart },
     {
-      userId,
-      weekStart,
-      totalScrollMinutes,
-      sessionsCount,
-      averageMoodRating,
-      peakScrollHour,
-      dominantCategory,
-      triggerPatterns,
+      $set: {
+        userId,
+        weekStart,
+        sessionsCount,
+        averageMoodRating,
+        peakScrollHour,
+        dominantCategory,
+        triggerPatterns,
+      },
+      $max: {
+        totalScrollMinutes,
+      },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   )
@@ -125,8 +129,112 @@ function calculateWeeklyStats(sessions) {
   }
 }
 
+/**
+ * Recalculate BehaviorWeek.totalScrollMinutes from BehaviorDay data
+ * for all weeks in the given date range.
+ * Called after Instagram upload so combined platform minutes are reflected
+ * in BehaviorWeek — which drives bar charts, progress, and trend graphs.
+ *
+ * Does NOT touch careerRelevantPercent or interestPercent — those come
+ * from YouTube classification and are not affected by Instagram.
+ */
+async function recalculateBehaviorWeeksFromDays(userId, startDateStr, endDateStr) {
+  const BehaviorDay = require('../models/BehaviorDay.model')
+  const BehaviorWeek = require('../models/BehaviorWeek.model')
+
+  // Fetch all BehaviorDay records in the date range
+  const days = await BehaviorDay.find({
+    userId,
+    date: { $gte: startDateStr, $lte: endDateStr },
+  }).lean()
+
+  if (days.length === 0) return { weeksUpdated: 0 }
+
+  // Group days by ISO week (Monday start)
+  const weekBuckets = {}
+  days.forEach(d => {
+    const dDate = new Date(d.date + 'T00:00:00Z')
+    const utcDay = dDate.getUTCDay()
+    const daysToMon = utcDay === 0 ? 6 : utcDay - 1
+    const weekMonday = new Date(dDate)
+    weekMonday.setUTCDate(dDate.getUTCDate() - daysToMon)
+    weekMonday.setUTCHours(0, 0, 0, 0)
+    const weekKey = weekMonday.toISOString().split('T')[0]
+
+    if (!weekBuckets[weekKey]) {
+      weekBuckets[weekKey] = { weekStart: weekMonday, days: [] }
+    }
+    weekBuckets[weekKey].days.push(d)
+  })
+
+  let weeksUpdated = 0
+
+  for (const [weekKey, bucket] of Object.entries(weekBuckets)) {
+    // Sum combined minutes from BehaviorDay
+    const combinedMinutes = bucket.days.reduce((sum, d) => {
+      return sum + (d.youtubeMinutes || 0) + (d.instagramMinutes || 0)
+    }, 0)
+
+    // Build combined interest minutes from Instagram (YouTube interests
+    // are already in BehaviorWeek from classification — only update IG portion)
+    const igInterestMinutes = {}
+    bucket.days.forEach(d => {
+      if (d.instagramInterestMinutes) {
+        const obj = d.instagramInterestMinutes instanceof Map
+          ? Object.fromEntries(d.instagramInterestMinutes)
+          : d.instagramInterestMinutes
+        Object.entries(obj).forEach(([k, v]) => {
+          igInterestMinutes[k] = (igInterestMinutes[k] || 0) + (Number(v) || 0)
+        })
+      }
+    })
+
+    // Check if any day has Instagram data
+    const hasInstagram = bucket.days.some(d => (d.instagramMinutes || 0) > 0)
+
+    // Only update totalScrollMinutes — leave classification percentages intact
+    const updateFields = {
+      totalScrollMinutes: combinedMinutes,
+    }
+
+    // Merge Instagram interest minutes into dailyInterestMinutes
+    // (YouTube interests are already there from classification)
+    if (hasInstagram && Object.keys(igInterestMinutes).length > 0) {
+      // Read existing doc to merge
+      const existing = await BehaviorWeek.findOne({
+        userId,
+        weekStart: bucket.weekStart,
+      }).select('dailyInterestMinutes').lean()
+
+      if (existing) {
+        const existingMins = existing.dailyInterestMinutes instanceof Map
+          ? Object.fromEntries(existing.dailyInterestMinutes)
+          : (existing.dailyInterestMinutes || {})
+
+        // Merge: add IG interest minutes to existing YT interest minutes
+        Object.entries(igInterestMinutes).forEach(([k, v]) => {
+          const perDay = Math.round(v / 7)
+          existingMins[k] = (existingMins[k] || 0) + perDay
+        })
+        updateFields.dailyInterestMinutes = existingMins
+      }
+    }
+
+    await BehaviorWeek.findOneAndUpdate(
+      { userId, weekStart: bucket.weekStart },
+      { $set: updateFields },
+      { upsert: false } // Only update existing weeks — don't create empty ones
+    )
+    weeksUpdated++
+  }
+
+  console.log(`[recalculateBehaviorWeeksFromDays] Updated ${weeksUpdated} weeks for user ${userId}`)
+  return { weeksUpdated }
+}
+
 module.exports = { 
   calculateMoodDurationInsight,
   updateBehaviorWeek,
   calculateWeeklyStats,
+  recalculateBehaviorWeeksFromDays,
 }

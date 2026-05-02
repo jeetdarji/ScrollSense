@@ -34,6 +34,12 @@ const Navbar = () => {
 
         {/* Right: Buttons (Desktop) */}
         <div className="hidden md:flex items-center gap-4">
+          <Link
+            to="/extension"
+            className="flex items-center justify-center border border-[#3F3F46] bg-transparent text-[#DFE104] hover:bg-[#DFE104] hover:text-black h-9 px-6 text-sm uppercase tracking-tighter rounded-none transition-colors duration-200 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DFE104]"
+          >
+            GET EXTENSION
+          </Link>
           <Link 
             to="/login"
             className="flex items-center justify-center border border-[#3F3F46] bg-transparent text-[#FAFAFA] hover:bg-[#FAFAFA] hover:text-black h-9 px-6 text-sm uppercase tracking-tighter rounded-none transition-colors duration-200 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#DFE104]"
@@ -83,6 +89,13 @@ const Navbar = () => {
               </a>
             ))}
             <div className="mt-8 flex flex-col gap-4">
+              <Link
+                to="/extension"
+                className="flex items-center justify-center border border-[#DFE104] bg-transparent text-[#DFE104] hover:bg-[#DFE104] hover:text-black h-14 px-6 text-xl uppercase tracking-tighter rounded-none transition-colors duration-200"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                GET EXTENSION
+              </Link>
               <Link 
                 to="/login"
                 className="flex items-center justify-center border border-[#3F3F46] bg-transparent text-[#FAFAFA] hover:bg-[#FAFAFA] hover:text-black h-14 px-6 text-xl uppercase tracking-tighter rounded-none transition-colors duration-200"

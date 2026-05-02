@@ -9,7 +9,7 @@ import api from '../../lib/axios';
 import clsx from 'clsx';
 
 export default function InterestBudgetTracker({ className }) {
-  const { isConnected, isLoading, interests, refetchDashboard } = useYouTubeData();
+  const { isConnected, isLoading, interests, refetchDashboard, instagramDataAvailable } = useYouTubeData();
   const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState({ h: 0, m: 0 });
 
@@ -18,7 +18,13 @@ export default function InterestBudgetTracker({ className }) {
       await api.post('/youtube/connect');
       refetchDashboard();
     } catch (err) {
-      console.error('YouTube connect failed:', err.message);
+      if (err.response?.data?.code === 'ONBOARDING_INCOMPLETE') {
+        console.warn('Complete onboarding before connecting YouTube');
+      } else if (err.response?.data?.code === 'NO_GOOGLE_ACCOUNT' || err.response?.data?.code === 'YOUTUBE_DISCONNECTED') {
+        window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`;
+      } else {
+        console.error('YouTube connect failed:', err.message);
+      }
     }
   };
 
@@ -95,60 +101,71 @@ export default function InterestBudgetTracker({ className }) {
       </div>
 
       <div className="flex flex-col flex-1">
-        {(interests || []).map((interest) => {
-          const budget = interest.dailyBudgetMinutes;
-          const consumed = interest.consumedMinutes;
-          const isOver = interest.status === 'over';
-          
-          const pct = Math.min((consumed / budget) * 100, 100);
-          let fillColor = 'bg-[#DFE104]';
-          if (isOver) fillColor = 'bg-red-500';
-          else if (consumed >= budget * 0.8) fillColor = 'bg-[#A1A1AA]';
+        {(interests || []).length === 0 ? (
+          <div className="text-center py-10 flex-1 flex flex-col items-center justify-center">
+            <div className="text-[3rem] font-bold text-[#27272A] leading-none mb-2" aria-hidden="true">—</div>
+            <p className="text-xs uppercase tracking-widest text-[#3F3F46]">NO INTERESTS SET</p>
+            <p className="text-[10px] text-[#3F3F46] mt-2 uppercase tracking-wider">ADD INTERESTS IN SETTINGS TO TRACK BUDGETS</p>
+          </div>
+        ) : (
+          (interests || []).map((interest) => {
+            const budget = interest.dailyBudgetMinutes;
+            const consumed = interest.consumedMinutes;
+            const isOver = interest.status === 'over';
+            const weeklyAvg = interest.weeklyAvgMinutes;
+            
+            const pct = budget > 0 ? Math.min((consumed / budget) * 100, 100) : 0;
+            let fillColor = 'bg-[#DFE104]';
+            if (isOver) fillColor = 'bg-red-500';
+            else if (consumed >= budget * 0.8) fillColor = 'bg-[#A1A1AA]';
 
-          let textColor = 'text-[#FAFAFA]';
-          if (isOver) textColor = 'text-red-500';
-          else if (interest.status === 'near_limit') textColor = 'text-[#A1A1AA]';
+            let textColor = 'text-[#FAFAFA]';
+            if (isOver) textColor = 'text-red-500';
+            else if (interest.status === 'near_limit') textColor = 'text-[#A1A1AA]';
 
-          return (
-            <div key={interest.id} className="flex flex-col gap-2 border-b border-[#3F3F46] py-5 last:border-0 last:pb-0 first:pt-0">
-              <div className="flex justify-between items-center mb-1">
-                <div className="flex items-center gap-2">
-                  <span className={clsx("text-sm font-bold uppercase tracking-tighter", textColor)}>
-                    {interest.label}
-                  </span>
-                  <span className="text-[9px] bg-red-500/10 text-red-500 px-1 py-0.5 uppercase tracking-widest border border-red-500/20">
-                    AUTO
-                  </span>
+            return (
+              <div key={interest.id} className="flex flex-col gap-2 border-b border-[#3F3F46] py-5 last:border-0 last:pb-0 first:pt-0">
+                <div className="flex justify-between items-center mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={clsx("text-sm font-bold uppercase tracking-tighter", textColor)}>
+                      {interest.label}
+                    </span>
+                    <span className="text-[9px] bg-[#27272A] text-[#A1A1AA] px-1 py-0.5 uppercase tracking-widest border border-[#3F3F46]">
+                      {instagramDataAvailable ? 'YT + IG' : 'YOUTUBE'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className={clsx("w-1.5 h-1.5 rounded-none", isOver ? "bg-red-500" : interest.status === 'near_limit' ? "bg-[#A1A1AA]" : "bg-[#DFE104]")} />
+                    <span className={clsx("text-[10px] uppercase tracking-widest", isOver ? "text-red-500" : interest.status === 'near_limit' ? "text-[#A1A1AA]" : "text-[#DFE104]")}>
+                      {isOver ? "OVERTIME" : interest.status === 'near_limit' ? "NEAR LIMIT" : "ON TRACK"}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className={clsx("w-1.5 h-1.5 rounded-none", isOver ? "bg-red-500" : interest.status === 'near_limit' ? "bg-[#A1A1AA]" : "bg-[#DFE104]")} />
-                  <span className={clsx("text-[10px] uppercase tracking-widest", isOver ? "text-red-500" : interest.status === 'near_limit' ? "text-[#A1A1AA]" : "text-[#DFE104]")}>
-                    {isOver ? "OVERTIME" : interest.status === 'near_limit' ? "NEAR LIMIT" : "ON TRACK"}
+
+                <div className="w-full h-[8px] bg-[#27272A] relative rounded-none overflow-hidden">
+                  <div className={clsx("absolute left-0 top-0 h-full transition-all duration-700", fillColor)} style={{ width: `${pct}%` }} />
+                </div>
+
+                {isOver && (
+                  <div className="w-full h-[4px] bg-[#27272A] mt-1 relative rounded-none overflow-hidden">
+                    <div className="absolute left-0 top-0 h-full bg-red-500/50 transition-all duration-700" style={{ width: `${Math.min(((consumed - budget) / budget) * 100, 100)}%` }} />
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center mt-1">
+                  <span className={clsx("text-xs uppercase tracking-widest", isOver ? "text-red-500" : interest.status === 'near_limit' ? "text-[#A1A1AA]" : "text-[#3F3F46]")}>
+                    {consumed} / {budget} MIN TODAY
                   </span>
+                  {weeklyAvg > 0 && (
+                    <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
+                      ~{weeklyAvg} MIN/DAY AVG
+                    </span>
+                  )}
                 </div>
               </div>
-
-              <div className="w-full h-[8px] bg-[#27272A] relative rounded-none overflow-hidden">
-                <div className={clsx("absolute left-0 top-0 h-full transition-all duration-700", fillColor)} style={{ width: `${pct}%` }} />
-              </div>
-
-              {isOver && (
-                <div className="w-full h-[4px] bg-[#27272A] mt-1 relative rounded-none overflow-hidden">
-                  <div className="absolute left-0 top-0 h-full bg-red-500/50 transition-all duration-700" style={{ width: `${Math.min(((consumed - budget) / budget) * 100, 100)}%` }} />
-                </div>
-              )}
-
-              <div className="flex justify-between items-center mt-1">
-                <span className={clsx("text-xs uppercase tracking-widest", isOver ? "text-red-500" : interest.status === 'near_limit' ? "text-[#A1A1AA]" : "text-[#3F3F46]")}>
-                  {consumed} / {budget} MIN
-                </span>
-                <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
-                  AVG {interest.weeklyAvgMinutes} MIN/DAY
-                </span>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {hasInstagramTopics && (

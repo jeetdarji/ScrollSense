@@ -14,7 +14,7 @@ import ContentDietDashboard from '../components/dashboard/ContentDietDashboard';
 import WeeklyCheckin from '../components/dashboard/WeeklyCheckin';
 import InterestBudgetTracker from '../components/dashboard/InterestBudgetTracker';
 import GoalRelevanceScore from '../components/dashboard/GoalRelevanceScore';
-import SessionLogger from '../components/dashboard/SessionLogger';
+import HabitNudgeEngine from '../components/patterns/HabitNudgeEngine';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -22,8 +22,6 @@ export default function DashboardPage() {
   const { isConnected, isClassifying, onboardingRequired, refetchStatus } = useYouTubeData();
   const [isLogSessionOpen, setIsLogSessionOpen] = useState(false);
   const clearIntentionIfStale = useDashboardStore(state => state.clearIntentionIfStale);
-  const [prefilledSessionData, setPrefilledSessionData] = useState(null);
-  const clearPrefilled = () => setPrefilledSessionData(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -124,6 +122,10 @@ export default function DashboardPage() {
           {/* MAIN DASHBOARD GRID */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             
+            <div className="lg:col-span-2">
+              <HabitNudgeEngine />
+            </div>
+
             {/* ROW 1 */}
             <ContentDietDashboard className="lg:col-span-2" />
 
@@ -142,17 +144,12 @@ export default function DashboardPage() {
               <CravingLog />
             </div>
 
-            {/* ADDITIONAL: Session Logger from previous implementations */}
-            <div id="session-logger-section" className="lg:col-span-2 min-h-[350px]">
-              <SessionLogger
-                prefilledData={prefilledSessionData}
-                onCompletePrefill={clearPrefilled}
-              />
-            </div>
           </div>
 
         </div>
       </main>
+
+      <LogSessionModal isOpen={isLogSessionOpen} onClose={() => setIsLogSessionOpen(false)} />
       <LogSessionButton onOpen={() => setIsLogSessionOpen(true)} variant="fab" />
     </div>
   );

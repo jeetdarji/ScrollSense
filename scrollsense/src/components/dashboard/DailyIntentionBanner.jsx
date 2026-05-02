@@ -1,10 +1,9 @@
 import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDashboardStore } from '../../store/dashboardStore';
-import { Meh, Zap, Search, Play, BookOpen, CheckCircle, X, Lock } from 'lucide-react';
+import { Meh, Zap, Search, Play, BookOpen, CheckCircle, X, Lock, Clock, Users, Repeat, Bell, Sparkles, Coffee, Brain } from 'lucide-react';
 import { useSessionData } from '../../hooks/useSessionData';
 import useAuthStore from '../../store/authStore';
-import api from '../../lib/axios';
 
 const INTENTIONS = [
   { id: 'boredom', icon: Meh, label: 'BOREDOM' },
@@ -12,6 +11,13 @@ const INTENTIONS = [
   { id: 'specific', icon: Search, label: 'LOOKING FOR SOMETHING' },
   { id: 'entertainment', icon: Play, label: 'PLANNED ENTERTAINMENT' },
   { id: 'learning', icon: BookOpen, label: 'WANT TO LEARN' },
+  { id: 'procrastination', icon: Clock, label: 'PROCRASTINATING' },
+  { id: 'social', icon: Users, label: 'STAYING UPDATED' },
+  { id: 'habit', icon: Repeat, label: 'FORCE OF HABIT' },
+  { id: 'fomo', icon: Bell, label: 'FOMO / CHECKING IN' },
+  { id: 'creative', icon: Sparkles, label: 'SEEKING INSPIRATION' },
+  { id: 'break', icon: Coffee, label: 'TAKING A BREAK' },
+  { id: 'curiosity', icon: Brain, label: 'CURIOUS / EXPLORING' },
 ];
 
 export const DailyIntentionBanner = () => {
@@ -40,8 +46,8 @@ export const DailyIntentionBanner = () => {
       console.error("Local storage fail", e);
     }
     
-    // Fire API non-blocking
-    api.post('/sessions/intention', { intentionCategory: optionId, type: 'daily' }).catch(() => {});
+    // Fire API non-blocking — uses the mutation so query caches are invalidated
+    logIntention({ intentionCategory: optionId, type: 'daily' }).catch(() => {});
   };
 
   if (todayIntention.dismissed) {

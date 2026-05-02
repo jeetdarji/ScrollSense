@@ -75,12 +75,12 @@ export function useSessionData() {
   const stats = statsQuery.data || {}
   
   const todayStr = new Date().toISOString().split('T')[0]
-  const todayBehaviorDay = dailyQuery.data?.days?.find(d => d.date === todayStr)
+  const todayBehaviorDay = dailyQuery.data?.weekData?.find(d => d.date === todayStr)
   
   // Calculate today's youtube data
   const hasBehaviorDayData = !!todayBehaviorDay
-  const todayYoutubeMinutes = todayBehaviorDay?.metrics?.platforms?.youtube || 0
-  const todayAutoMinutes = todayBehaviorDay?.metrics?.platforms?.youtube_auto || 0
+  const todayYoutubeMinutes = todayBehaviorDay?.youtubeMinutes || 0
+  const todayAutoMinutes = todayBehaviorDay?.youtubeMinutes || 0
 
   return {
     // Today's data

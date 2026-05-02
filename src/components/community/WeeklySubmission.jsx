@@ -1,108 +1,55 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BarChart2, EyeOff, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-function getWeekId(date) {
-  const start = new Date(date.getFullYear(), 0, 1);
-  const week = Math.ceil(((date - start) / 86400000 + start.getDay() + 1) / 7);
-  return `${date.getFullYear()}-W${String(week).padStart(2, '0')}`;
-}
+export default function WeeklySubmission({
+  currentWeek,
+  membership,
+  onSubmitWeek,
+  isSubmitting = false,
+}) {
+  const [submitError, setSubmitError] = useState(null);
+  const [justSubmitted, setJustSubmitted] = useState(false);
 
-function getCurrentWeekId() {
-  return getWeekId(new Date());
-}
+  if (!currentWeek || !membership) return null;
 
-function getPreviousWeekId(currentWeekId) {
-  const [yearStr, weekStr] = currentWeekId.split('-W');
-  let year = parseInt(yearStr, 10);
-  let week = parseInt(weekStr, 10);
-  
-  if (week === 1) {
-    year -= 1;
-    week = 52; // simplification
-  } else {
-    week -= 1;
+  const {
+    isoWeek,
+    hasSubmitted,
+    pendingDelta,
+    sessionsThisWeek,
+    sessionsRequired,
+    canSubmit,
+  } = currentWeek;
+
+  const anonymousName = membership.anonymousName;
+
+  // Determine display state
+  let displayState = 'no_data';
+  if (hasSubmitted || justSubmitted) {
+    displayState = 'submitted';
+  } else if (canSubmit && pendingDelta !== null) {
+    displayState = 'pending';
   }
-  return `${year}-W${String(week).padStart(2, '0')}`;
-}
 
-export default function WeeklySubmission({ group, weeklySub }) {
-  const [sessions, setSessions] = useState([]);
-  const [state, setState] = useState('pending'); // no_data, pending, submitted
-  
-  const currentWeekId = getCurrentWeekId();
+  // Delta display values (negative = improvement)
+  const isImprovement = pendingDelta !== null && pendingDelta < 0;
+  const isWorse = pendingDelta !== null && pendingDelta > 0;
+  const absMinutes = Math.abs(pendingDelta || 0);
 
-  // Load actual session data
-  useEffect(() => {
+  const handleSubmit = async () => {
+    setSubmitError(null);
     try {
-      const storedSessions = JSON.parse(localStorage.getItem('scrollsense_sessions') || '[]');
-      setSessions(storedSessions);
-    } catch (e) {
-      setSessions([]);
+      await onSubmitWeek();
+      setJustSubmitted(true);
+    } catch (err) {
+      const msg = err?.response?.data?.error || 'Failed to submit. Try again.';
+      setSubmitError(msg);
     }
-  }, []);
-
-  useEffect(() => {
-    const alreadySubmitted = weeklySub?.weekId === currentWeekId && weeklySub?.submitted === true;
-    const hasEnoughData = sessions.length >= 3;
-    
-    // For V1 preview, we can mock sessions if there are none to show the UI
-    // But since the prompt specifies real session logic:
-    if (alreadySubmitted) {
-      setState('submitted');
-    } else if (hasEnoughData) {
-      setState('pending');
-    } else {
-      // Temporarily use 'pending' instead of 'no_data' if user doesn't have 3 sessions,
-      // actually let's stick to the prompt exactly. 
-      setState('no_data');
-    }
-  }, [sessions, weeklySub, currentWeekId]);
-
-  // Bypass for testing/mock mode: if sessions < 3, pretend we have some data
-  const effectiveSessions = sessions.length < 3 ? [
-    { timestamp: new Date().toISOString(), durationMinutes: 120 },
-    { timestamp: new Date(Date.now() - 86400000).toISOString(), durationMinutes: 100 },
-    { timestamp: new Date(Date.now() - 86400000 * 7).toISOString(), durationMinutes: 300 }
-  ] : sessions;
-
-  // recalculate based on prompt
-  const hasEnoughData = sessions.length >= 3;
-  const displayState = (weeklySub?.weekId === currentWeekId && weeklySub?.submitted === true) 
-    ? 'submitted' 
-    : (hasEnoughData ? 'pending' : 'no_data');
-
-  const thisWeekSessions = effectiveSessions.filter(s => getWeekId(new Date(s.timestamp)) === currentWeekId);
-  const lastWeekSessions = effectiveSessions.filter(s => getWeekId(new Date(s.timestamp)) === getPreviousWeekId(currentWeekId));
-
-  const thisWeekTotal = thisWeekSessions.reduce((s, sess) => s + sess.durationMinutes, 0);
-  const lastWeekTotal = lastWeekSessions.reduce((s, sess) => s + sess.durationMinutes, 0);
-  
-  const improvement = lastWeekTotal - thisWeekTotal;
-  const improvPct = lastWeekTotal > 0 ? Math.round((improvement / lastWeekTotal) * 100) : 0;
-
-  const handleSubmit = () => {
-    const submission = {
-      weekId: currentWeekId,
-      submitted: true,
-      minutesThisWeek: thisWeekTotal,
-      minutesLastWeek: lastWeekTotal,
-      improvementMinutes: improvement,
-      improvementPct: improvPct,
-      submittedAt: new Date().toISOString(),
-    };
-    localStorage.setItem('scrollsense_weekly_sub', JSON.stringify(submission));
-    
-    // force re-render by updating window location or local state
-    window.location.reload();
   };
 
-  const formatDate = (isoStr) => {
-    if (!isoStr) return '';
-    return new Date(isoStr).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-    }).toUpperCase();
-  };
+  // Find the user's submission in the list for the 'submitted' state
+  const userSubmission = currentWeek.submissions?.find(s => s.isYou);
 
   return (
     <motion.div
@@ -123,36 +70,46 @@ export default function WeeklySubmission({ group, weeklySub }) {
         </div>
         <div className="border border-[#3F3F46] px-3 py-1">
           <p className="text-xs uppercase tracking-widest text-[#3F3F46]">
-            WEEK {currentWeekId}
+            WEEK {isoWeek}
           </p>
         </div>
       </div>
 
+      {/* State: Not enough sessions */}
       {displayState === 'no_data' && (
         <div className="py-8 text-center">
           <BarChart2 size={20} color="#3F3F46" className="mx-auto mb-3" />
           <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] mb-2">
-            LOG 3 SESSIONS TO SUBMIT THIS WEEK
+            LOG {sessionsRequired} SESSIONS TO SUBMIT THIS WEEK
           </h3>
-          
+
           <div className="max-w-xs mx-auto mt-4">
             <div className="w-full h-[4px] bg-[#27272A]">
-              <div 
+              <div
                 className="h-[4px] bg-[#DFE104] transition-all duration-700"
-                style={{ width: `${Math.min((sessions.length / 3) * 100, 100)}%` }}
+                style={{ width: `${Math.min((sessionsThisWeek / sessionsRequired) * 100, 100)}%` }}
               ></div>
             </div>
             <p className="text-xs uppercase tracking-widest text-[#3F3F46] mt-2">
-              {sessions.length} / 3 SESSIONS
+              {sessionsThisWeek} / {sessionsRequired} SESSIONS
             </p>
           </div>
-          
-          <p className="text-xs text-[#3F3F46] mt-3">
-            Go log sessions from the dashboard.
-          </p>
+
+          {pendingDelta === null && (
+            <p className="text-xs text-[#3F3F46] mt-3">
+              Go log sessions from the dashboard.
+            </p>
+          )}
+
+          {pendingDelta !== null && sessionsThisWeek < sessionsRequired && (
+            <p className="text-xs text-[#A1A1AA] mt-3">
+              We have your delta ready ({pendingDelta < 0 ? `${pendingDelta}` : `+${pendingDelta}`} min) — just need {sessionsRequired - sessionsThisWeek} more session{sessionsRequired - sessionsThisWeek > 1 ? 's' : ''}.
+            </p>
+          )}
         </div>
       )}
 
+      {/* State: Ready to submit */}
       {displayState === 'pending' && (
         <div className="py-6 text-center">
           <p className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-4">
@@ -160,36 +117,36 @@ export default function WeeklySubmission({ group, weeklySub }) {
           </p>
 
           <div className="mb-4">
-            {improvement > 0 && (
+            {isImprovement && (
               <>
-                <h1 
-                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }} 
+                <h1
+                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }}
                   className="font-bold uppercase tracking-tighter leading-none text-[#DFE104]"
                 >
-                  -{improvement} MIN
+                  {pendingDelta} MIN
                 </h1>
                 <p className="text-xs uppercase tracking-widest text-[#DFE104] mt-3">
-                  {improvPct}% LESS SCROLLING THAN LAST WEEK
+                  LESS SCROLLING THAN LAST WEEK
                 </p>
               </>
             )}
-            {improvement < 0 && (
+            {isWorse && (
               <>
-                <h1 
-                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }} 
+                <h1
+                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }}
                   className="font-bold uppercase tracking-tighter leading-none text-[#A1A1AA]"
                 >
-                  +{Math.abs(improvement)} MIN
+                  +{absMinutes} MIN
                 </h1>
                 <p className="text-xs uppercase tracking-widest text-[#A1A1AA] mt-3">
-                  {Math.abs(improvPct)}% MORE THAN LAST WEEK
+                  MORE THAN LAST WEEK
                 </p>
               </>
             )}
-            {improvement === 0 && (
+            {pendingDelta === 0 && (
               <>
-                <h1 
-                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }} 
+                <h1
+                  style={{ fontSize: 'clamp(3rem, 8vw, 6rem)' }}
                   className="font-bold uppercase tracking-tighter leading-none text-[#3F3F46]"
                 >
                   NO CHANGE
@@ -201,46 +158,41 @@ export default function WeeklySubmission({ group, weeklySub }) {
             )}
           </div>
 
-          <div className="flex justify-center gap-8 mt-4 flex-wrap">
-            <div className="flex flex-col items-center">
-              <span className="text-sm font-bold uppercase text-[#FAFAFA]">{thisWeekTotal} MIN</span>
-              <span className="text-[10px] uppercase text-[#3F3F46]">THIS WEEK</span>
-            </div>
-            <div className="hidden sm:block h-8 w-[1px] bg-[#3F3F46]"></div>
-            <div className="flex flex-col items-center">
-              <span className="text-sm font-bold uppercase text-[#A1A1AA]">{lastWeekTotal} MIN</span>
-              <span className="text-[10px] uppercase text-[#3F3F46]">LAST WEEK</span>
-            </div>
-          </div>
-
           <div className="mt-4 mb-6 flex items-center justify-center gap-2">
             <EyeOff size={11} color="#3F3F46" />
             <p className="text-[10px] uppercase tracking-wider text-[#3F3F46]">
-              YOUR GROUP WILL SEE: '{group?.myAnonymousName || 'YOU'}' — {improvement > 0 ? `${improvement} MIN LESS` : `${Math.abs(improvement)} MIN MORE`}
+              YOUR GROUP WILL SEE: '{anonymousName}' — {pendingDelta < 0 ? `${Math.abs(pendingDelta)} MIN LESS` : pendingDelta > 0 ? `${pendingDelta} MIN MORE` : 'NO CHANGE'}
             </p>
           </div>
 
+          {submitError && (
+            <div className="mb-4 p-3 border border-red-900/30 bg-red-900/5 text-center">
+              <p className="text-xs text-red-400 uppercase tracking-wider">{submitError}</p>
+            </div>
+          )}
+
           <button
             onClick={handleSubmit}
-            className="w-full bg-[#DFE104] text-black font-bold h-14 uppercase tracking-tighter text-sm rounded-none hover:scale-105 active:scale-95 transition-all"
+            disabled={isSubmitting}
+            className="w-full bg-[#DFE104] text-black font-bold h-14 uppercase tracking-tighter text-sm rounded-none hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
           >
-            SHARE WITH GROUP — ANONYMOUSLY
+            {isSubmitting ? 'SUBMITTING...' : 'SHARE WITH GROUP — ANONYMOUSLY'}
           </button>
         </div>
       )}
 
-      {displayState === 'submitted' && weeklySub && (
+      {/* State: Already submitted */}
+      {displayState === 'submitted' && (
         <div className="py-8 text-center">
           <CheckCircle size={24} color="#DFE104" className="mx-auto mb-4" />
           <h3 className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA] mb-2">
             THIS WEEK'S NUMBER SHARED
           </h3>
-          <p className="text-sm text-[#A1A1AA]">
-            {group?.myAnonymousName || 'You'} shared: {weeklySub.improvementMinutes > 0 ? `-${weeklySub.improvementMinutes} MIN` : `+${Math.abs(weeklySub.improvementMinutes)} MIN`}
-          </p>
-          <p className="text-[10px] uppercase text-[#3F3F46] mt-2">
-            SUBMITTED {formatDate(weeklySub.submittedAt)}
-          </p>
+          {userSubmission && (
+            <p className="text-sm text-[#A1A1AA]">
+              {anonymousName} shared: {userSubmission.deltaMinutes < 0 ? `${userSubmission.deltaMinutes} MIN` : `+${userSubmission.deltaMinutes} MIN`}
+            </p>
+          )}
           <p className="text-xs uppercase tracking-widest text-[#3F3F46] mt-4">
             NEXT SUBMISSION OPENS MONDAY
           </p>

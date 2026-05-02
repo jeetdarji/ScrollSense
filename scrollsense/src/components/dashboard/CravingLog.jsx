@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Meh, Zap, Repeat, UserX, Shield, Minus, TrendingDown, Lock, CheckCircle, MessageSquare, Eye, PenLine, X } from 'lucide-react';
+import { Plus, Meh, Zap, Repeat, UserX, Shield, Minus, TrendingDown, Lock, CheckCircle, MessageSquare, Eye, PenLine, X, BarChart2 } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useCravingData } from '../../hooks/useCravingData';
 
@@ -33,7 +33,40 @@ export default function CravingLog() {
     logCraving, 
     isLogging,
     resistanceRate,
+    mostCommonTrigger,
+    thisWeekCount,
+    outcomes,
   } = useCravingData();
+
+  // Build trigger stats from local history for visual breakdown
+  const triggerStats = React.useMemo(() => {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const recent = history.filter(h => new Date(h.timestamp) >= weekAgo);
+    if (recent.length === 0) return [];
+    const counts = {};
+    recent.forEach(h => { counts[h.trigger] = (counts[h.trigger] || 0) + 1; });
+    const max = Math.max(...Object.values(counts));
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([trigger, count]) => ({
+        label: trigger.toUpperCase(),
+        count,
+        pct: Math.round((count / max) * 100),
+      }));
+  }, [history]);
+
+  // Compute outcome breakdown from server or local
+  const outcomeData = React.useMemo(() => {
+    const total = (outcomes?.resisted || 0) + (outcomes?.partial || 0) + (outcomes?.gaveIn || 0);
+    if (total === 0) return null;
+    return [
+      { label: 'RESISTED', count: outcomes.resisted || 0, color: '#DFE104', pct: Math.round(((outcomes.resisted || 0) / total) * 100) },
+      { label: 'PARTIAL', count: outcomes.partial || 0, color: '#A1A1AA', pct: Math.round(((outcomes.partial || 0) / total) * 100) },
+      { label: 'GAVE IN', count: outcomes.gaveIn || 0, color: '#3F3F46', pct: Math.round(((outcomes.gaveIn || 0) / total) * 100) },
+    ];
+  }, [outcomes]);
 
   const handleLog = async () => {
     if (!trigger || !outcome) return;
@@ -161,6 +194,82 @@ export default function CravingLog() {
                 <div className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">LOG A CRAVING</div>
                 <div className="text-xs text-[#A1A1AA] mt-1 font-medium">Remember a moment today when you felt the urge to scroll.</div>
               </motion.button>
+
+              {/* Visual Craving Stats */}
+              {(triggerStats.length > 0 || resistanceRate !== null) && (
+                <div className="mt-6 border border-[#27272A] p-4 bg-[#27272A]/20">
+                  <div className="flex items-center gap-2 mb-4">
+                    <BarChart2 size={12} color="#A1A1AA" />
+                    <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">THIS WEEK'S PATTERNS</span>
+                  </div>
+
+                  {/* Resistance Rate */}
+                  {resistanceRate !== null && (
+                    <div className="mb-4 pb-4 border-b border-[#3F3F46]">
+                      <div className="flex justify-between items-baseline mb-2">
+                        <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">RESISTANCE RATE</span>
+                        <span className={`text-xl font-bold uppercase tracking-tighter ${resistanceRate >= 50 ? 'text-[#DFE104]' : 'text-[#A1A1AA]'}`}>
+                          {resistanceRate}%
+                        </span>
+                      </div>
+                      <div className="w-full h-[6px] bg-[#27272A] overflow-hidden">
+                        <div
+                          className="h-full bg-[#DFE104] transition-all duration-700"
+                          style={{ width: `${resistanceRate}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-[#3F3F46] mt-1 uppercase tracking-wider">
+                        {resistanceRate >= 60 ? 'STRONG CONTROL' : resistanceRate >= 40 ? 'BUILDING AWARENESS' : 'KEEP NOTICING'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Outcome Breakdown */}
+                  {outcomeData && (
+                    <div className="mb-4 pb-4 border-b border-[#3F3F46]">
+                      <div className="text-[10px] uppercase tracking-widest text-[#3F3F46] mb-2">OUTCOME SPLIT ({thisWeekCount} CRAVINGS)</div>
+                      <div className="flex w-full h-[8px] mb-2 gap-0.5">
+                        {outcomeData.map((o) => o.pct > 0 && (
+                          <div
+                            key={o.label}
+                            className="h-full transition-all duration-700"
+                            style={{ width: `${o.pct}%`, backgroundColor: o.color }}
+                          />
+                        ))}
+                      </div>
+                      <div className="flex gap-4 flex-wrap">
+                        {outcomeData.map((o) => (
+                          <div key={o.label} className="flex items-center gap-1.5">
+                            <div className="w-2 h-2" style={{ backgroundColor: o.color }} />
+                            <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">{o.label} {o.pct}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Top Triggers */}
+                  {triggerStats.length > 0 && (
+                    <div>
+                      <div className="text-[10px] uppercase tracking-widest text-[#3F3F46] mb-3">TOP TRIGGERS THIS WEEK</div>
+                      <div className="flex flex-col gap-2">
+                        {triggerStats.map((t) => (
+                          <div key={t.label} className="flex items-center gap-3">
+                            <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA] min-w-[90px]">{t.label}</span>
+                            <div className="flex-1 h-[4px] bg-[#27272A]">
+                              <div
+                                className="h-full bg-[#DFE104]/60 transition-all duration-700"
+                                style={{ width: `${t.pct}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-[#3F3F46] min-w-[16px] text-right">{t.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button
                 onClick={() => setIsHistoryOpen(true)}

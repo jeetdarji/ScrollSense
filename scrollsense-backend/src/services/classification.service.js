@@ -2,110 +2,285 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Sentinel error thrown when daily quota (RPD) is exhausted.
+// The outer batch loop catches this to stop processing and save partial results.
+class QuotaDailyExhaustedError extends Error {
+  constructor() {
+    super('GEMINI_RPD_EXHAUSTED');
+    this.name = 'QuotaDailyExhaustedError';
+  }
+}
+
 /**
- * Classifies a batch of videos (up to 200) using Gemini AI.
+ * Builds career-specific goal keywords for the Gemini prompt.
+ * More keywords = better classification accuracy for this user.
+ */
+function buildGoalKeywords(careerPath, careerPathPreset, goals) {
+  const career = (careerPath || careerPathPreset || '').toLowerCase();
+  const keywordMap = {
+    software_dev: 'programming, coding, algorithms, data structures, system design, React, Node.js, JavaScript, Python, TypeScript, web development, frontend, backend, API, database, DevOps, tech interview, software engineering',
+    data_science: 'machine learning, deep learning, data analysis, Python, pandas, neural networks, statistics, AI, NLP, computer vision, Kaggle, data engineering',
+    design: 'UI design, UX design, Figma, typography, color theory, design system, product design, branding, wireframe, user research',
+    marketing: 'SEO, content marketing, social media marketing, growth hacking, analytics, copywriting, email marketing, funnel, conversion',
+    finance: 'investing, stock market, trading, personal finance, budgeting, bonds, ETF, financial planning, valuation, portfolio',
+    business: 'entrepreneurship, startup, product management, business strategy, operations, leadership, B2B, SaaS, pitch deck',
+    medicine: 'anatomy, physiology, clinical medicine, pharmacology, surgery, diagnosis, medical research, USMLE, pathology',
+    law: 'legal analysis, case law, constitutional law, contracts, litigation, bar exam, jurisprudence',
+    engineering: 'mechanical engineering, electrical engineering, circuits, thermodynamics, CAD, manufacturing, control systems',
+  };
+
+  // Try exact match, then partial match
+  let keywords = '';
+  for (const [key, kw] of Object.entries(keywordMap)) {
+    if (career.includes(key) || key.includes(career)) {
+      keywords = kw;
+      break;
+    }
+  }
+
+  // Append goals as additional context
+  if (goals && goals.length > 0) {
+    keywords = keywords ? `${keywords}, ${goals.join(', ')}` : goals.join(', ');
+  }
+
+  return keywords;
+}
+
+/**
+ * Builds interest-specific YouTube keyword hints per declared interest.
+ */
+function buildInterestHints(interests) {
+  const hintMap = {
+    cricket: 'cricket match, IPL, test cricket, ODI, cricket highlights, partnership, wicket, batting, bowling',
+    gaming: 'gameplay, let\'s play, game review, walkthrough, esports, speedrun, gaming setup, game trailer',
+    music: 'music video, song, album, concert, lyrics, cover, artist interview, playlist, beats',
+    movies: 'movie review, film analysis, trailer, box office, director, cinematography, Oscar',
+    fitness: 'workout, gym, exercise, bodybuilding, yoga, nutrition, weight loss, HIIT, cardio',
+    travel: 'travel vlog, city guide, backpacking, hotel review, flight, tourist, destination',
+    cooking: 'recipe, cooking tutorial, chef, food review, baking, cuisine, meal prep',
+    anime: 'anime episode, manga, anime review, character analysis, dubbed, subbed, shounen',
+    football: 'football match, Premier League, FIFA, goals, tactics, player transfer, La Liga',
+    basketball: 'NBA, basketball highlights, dunks, WNBA, college basketball, player stats',
+    photography: 'photography tutorial, camera review, lens, editing, lightroom, portrait, landscape',
+    reading: 'book review, book summary, author interview, reading list, literature, novel',
+    finance: 'stock tips, investment advice, crypto, personal finance, budgeting, trading',
+    science: 'science experiment, physics, chemistry, biology, space, NASA, research, discovery',
+    history: 'historical documentary, ancient history, war history, biography, civilization',
+  };
+
+  const lines = [];
+  for (const interest of interests) {
+    const label = interest.label.toLowerCase();
+    const hint = hintMap[label] || label;
+    lines.push(`  "${label}": ${hint}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Keyword-based fallback classifier — used when Gemini quota is exhausted.
+ * Marks results with source: 'keyword_fallback' for re-classification later.
+ */
+function keywordFallbackClassify(videos, userContext) {
+  const career = (userContext.careerPath || userContext.careerPathPreset || '').toLowerCase();
+  const goalKeywords = buildGoalKeywords(
+    userContext.careerPath,
+    userContext.careerPathPreset,
+    userContext.goals
+  )
+    .toLowerCase()
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+
+  const interestKeywordMap = {};
+  for (const interest of userContext.interests) {
+    const label = interest.label.toLowerCase();
+    interestKeywordMap[label] = label.split(' ');
+  }
+
+  return videos.map((v) => {
+    const haystack = `${v.title} ${v.channelName}`.toLowerCase();
+
+    // Goal check
+    const isGoal = goalKeywords.some((kw) => kw.length > 3 && haystack.includes(kw));
+    if (isGoal) {
+      return {
+        videoId: v.videoId,
+        channelId: v.channelId,
+        channelName: v.channelName,
+        category: 'goal',
+        matchedInterest: null,
+        source: 'keyword_fallback',
+      };
+    }
+
+    // Interest check
+    for (const [label, keywords] of Object.entries(interestKeywordMap)) {
+      if (keywords.some((kw) => kw.length > 3 && haystack.includes(kw))) {
+        return {
+          videoId: v.videoId,
+          channelId: v.channelId,
+          channelName: v.channelName,
+          category: 'interest',
+          matchedInterest: label,
+          source: 'keyword_fallback',
+        };
+      }
+    }
+
+    return {
+      videoId: v.videoId,
+      channelId: v.channelId,
+      channelName: v.channelName,
+      category: 'junk',
+      matchedInterest: null,
+      source: 'keyword_fallback',
+    };
+  });
+}
+
+/**
+ * Classifies a single batch of up to 10 videos using Gemini AI.
+ * Chunk size is kept at 10 to stay safely under 15 RPM free tier limit.
  * Titles are INPUT ONLY — they are discarded after classification.
- * Returns array of { videoId, channelId, channelName, category }.
- * Category is one of: 'goal' | 'interest' | 'junk'.
+ * Returns array of { videoId, channelId, channelName, category, matchedInterest }.
+ * Throws QuotaDailyExhaustedError when RPD limit is hit (caller must stop pipeline).
  */
 async function classifyBatch(videos, userContext) {
-  const interestLabels = userContext.interests
-    .map((i) => i.label)
+  const interestLabels = userContext.interests.map((i) => i.label).join(', ');
+  const interestLabelList = userContext.interests
+    .map((i) => `"${i.label.toLowerCase()}"`)
     .join(', ');
 
-  const prompt = `You are a content classifier for a behavioral awareness app. Classify each YouTube video into exactly one category.
+  const goalKeywords = buildGoalKeywords(
+    userContext.careerPath,
+    userContext.careerPathPreset,
+    userContext.goals
+  );
+  const interestHints = buildInterestHints(userContext.interests);
 
-USER CONTEXT:
-- Focus area: ${userContext.careerPath || userContext.careerPathPreset}
-- Goals: ${userContext.goals.join(', ')}
-- Declared interests: ${interestLabels}
+  // Include previously-known channel categories as context hints
+  const knownChannels = (userContext.knownChannels || [])
+    .slice(0, 5)
+    .map((ch) => `${ch.channelName}=${ch.category}`)
+    .join(', ');
 
-CATEGORIES:
-- goal: Content directly related to the user's focus area or goals
-- interest: Content matching the user's declared interests
-- junk: Everything else
+  const prompt = `Classify YouTube videos for a behavioral app. Return ONLY a JSON array, no explanation.
 
-INTEREST MATCHING:
-When category is "interest", also identify which declared interest 
-it matches from this list: ${interestLabels}
-Use the exact label from the list, lowercase, no spaces 
-(e.g. "cricket", "football", "music").
-If it matches multiple, pick the closest one.
-If category is "goal" or "junk", set interest to null.
+USER: focus="${userContext.careerPath || userContext.careerPathPreset}", goals="${userContext.goals ? userContext.goals.join(', ') : ''}"
+GOAL_KEYWORDS: ${goalKeywords}
+INTERESTS: ${interestLabels}
+INTEREST_HINTS:
+${interestHints}${knownChannels ? `\nKNOWN_CHANNELS: ${knownChannels}` : ''}
 
-RULES:
-- Return ONLY a JSON array. No explanation. No markdown. No backticks.
-- Each item: {"id":"videoId","cat":"goal"|"interest"|"junk","interest":string|null}
-- interest field: exact interest label (lowercase) or null
-- If unsure on category, classify as "junk"
-- interest must be null when cat is "goal" or "junk"
-- Classify based on title and channel name only
+CATEGORIES: goal=focus/goals content, interest=declared interest content, junk=everything else
+OUTPUT: [{"id":"videoId","cat":"goal"|"interest"|"junk","interest":"label"|null}]
+- interest field: REQUIRED exact lowercase label from [${interestLabelList}] when cat is "interest" — never null for interest category
+- interest must be null when cat is goal or junk
+- if a video seems like an interest but you cannot confidently match a label, set cat to "junk" instead
 
-VIDEOS TO CLASSIFY:
+VIDEOS:
 ${videos
   .map(
     (v) =>
-      `{"id":"${v.videoId}","title":"${v.title.replace(/"/g, "'")}","channel":"${v.channelName}"}`
+      `{"id":"${v.videoId}","t":"${v.title.replace(/"/g, "'")}","ch":"${v.channelName}"}`
   )
-  .join('\n')}
+  .join('\n')}`;
 
-Return JSON array only:`;
-
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
-  });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
   let classMap = {};
-  const maxRetries = 3;
+  // RPM exhaustion: retry once after 65s. RPD exhaustion: stop immediately.
+  const maxAttempts = 3;
   let attempt = 0;
 
-  while (attempt < maxRetries) {
+  while (attempt < maxAttempts) {
     try {
       const result = await model.generateContent(prompt);
       const text = result.response.text().trim();
 
-      // Parse response safely
       let classifications = [];
       try {
-        // Strip any accidental markdown fences
         const clean = text.replace(/```json|```/g, '').trim();
         classifications = JSON.parse(clean);
       } catch (err) {
-        console.error('Classification parse error:', err.message, 'Text was:', text);
-        // Fallback: classify all as 'junk' to avoid blocking pipeline
-        classifications = videos.map((v) => ({ id: v.videoId, cat: 'junk', interest: null }));
+        console.error('Classification parse error:', err.message);
+        // Parse failure for this chunk — default to keyword fallback for these videos
+        return keywordFallbackClassify(videos, userContext);
       }
 
-      // Validate each item — ensure cat is one of the valid values
       const validCats = ['goal', 'interest', 'junk'];
-      classifications = classifications.map((c) => ({
-        ...c,
-        cat: validCats.includes(c.cat) ? c.cat : 'junk',
-        interest: validCats.includes(c.cat) && c.cat === 'interest' ? c.interest : null,
-      }));
+      const validInterestLabels = userContext.interests.map((i) => i.label.toLowerCase());
+
+      classifications = classifications.map((c) => {
+        const validCat = validCats.includes(c.cat) ? c.cat : 'junk';
+        let matchedInterest = null;
+        if (validCat === 'interest' && c.interest) {
+          const normalized = c.interest.toLowerCase().trim();
+          const exactMatch = validInterestLabels.find((l) => l === normalized);
+          const substringMatch =
+            exactMatch === undefined
+              ? validInterestLabels.find(
+                  (l) => l.includes(normalized) || normalized.includes(l)
+                )
+              : undefined;
+          matchedInterest = exactMatch ?? substringMatch ?? null;
+        }
+        return { ...c, cat: validCat, interest: matchedInterest };
+      });
 
       classMap = Object.fromEntries(
         classifications.map((c) => [c.id, { cat: c.cat, interest: c.interest ?? null }])
       );
-      break; // Success, exit retry loop
+      break; // success
     } catch (err) {
-      const isRateLimit = err.status === 429 || (err.message && err.message.includes('429')) || (err.message && err.message.includes('Quota'));
-      const isServerError = err.status >= 500 || (err.message && err.message.includes('503'));
-      
-      if (isRateLimit || isServerError) {
-        attempt++;
-        if (attempt >= maxRetries) {
-          console.error(`[Classification] Failed after ${maxRetries} attempts due to API limits/errors.`);
-          break;
+      const errMsg = (err.message || '').toLowerCase();
+      const errStatus = err.status || (err.response && err.response.status);
+
+      const isRateLimit =
+        errStatus === 429 ||
+        errMsg.includes('429') ||
+        errMsg.includes('quota') ||
+        errMsg.includes('rate limit') ||
+        errMsg.includes('resource_exhausted');
+      const isServerError =
+        errStatus >= 500 || errMsg.includes('503') || errMsg.includes('500');
+
+      if (isRateLimit) {
+        // Distinguish RPD (daily) from RPM (per-minute) exhaustion.
+        // RPD errors mention "daily" or "per day" in the message.
+        const isDailyQuota =
+          errMsg.includes('daily') ||
+          errMsg.includes('per day') ||
+          errMsg.includes('rpd') ||
+          errMsg.includes('1000');
+
+        if (isDailyQuota) {
+          console.error('[Classification] Daily quota (RPD) exhausted. Stopping classification to save partial results.');
+          throw new QuotaDailyExhaustedError();
         }
-        
-        // 20s, 40s, 80s — gentler backoff for free tier
-        const backoffMs = 20000 * Math.pow(2, attempt - 1);
-        console.log(`[Rate Limit] Gemini quota exceeded or server error. Retrying ${attempt}/${maxRetries} in ${backoffMs / 1000} seconds...`);
-        await new Promise(res => setTimeout(res, backoffMs));
+
+        // RPM exhaustion — wait full reset window (65s) then retry
+        attempt++;
+        if (attempt >= maxAttempts) {
+          console.error(`[Classification] RPM quota still exhausted after ${maxAttempts} attempts. Using keyword fallback.`);
+          return keywordFallbackClassify(videos, userContext);
+        }
+        console.log(`[Rate Limit] RPM quota exceeded. Waiting 65s before retry ${attempt}/${maxAttempts}...`);
+        await new Promise((r) => setTimeout(r, 65000));
+      } else if (isServerError) {
+        attempt++;
+        if (attempt >= maxAttempts) {
+          console.error(`[Classification] Server error after ${maxAttempts} attempts. Using keyword fallback.`);
+          return keywordFallbackClassify(videos, userContext);
+        }
+        const backoffMs = 10000 * attempt;
+        console.log(`[Classification] Server error. Retrying in ${backoffMs / 1000}s (attempt ${attempt}/${maxAttempts})...`);
+        await new Promise((r) => setTimeout(r, backoffMs));
       } else {
-        console.error('Classification prompt error:', err.message);
-        break;
+        console.error('Classification error:', err.message);
+        return keywordFallbackClassify(videos, userContext);
       }
     }
   }
@@ -121,27 +296,55 @@ Return JSON array only:`;
 }
 
 /**
- * Classifies ALL videos, chunking into groups of 50 for Gemini
- * to prevent rate limits and token overflow.
+ * Classifies ALL videos in chunks of 10.
+ * 10 videos/request × 8s delay = max 7.5 RPM (safe under 15 RPM free tier limit).
+ * On RPD exhaustion, stops early and returns partial results with keyword fallback
+ * for remaining videos — partial data is better than no data.
  * Titles are inputs — they are NEVER stored after classification.
  */
 async function classifyVideoBatch(videos, userContext) {
-  if (videos.length <= 10) {
-    return classifyBatch(videos, userContext);
-  }
-
+  const CHUNK_SIZE = 10; // DO NOT reduce below 10 — smaller = more API calls = faster quota burn
   const results = [];
-  for (let i = 0; i < videos.length; i += 10) {
-    const chunk = videos.slice(i, i + 10);
-    const chunkResults = await classifyBatch(chunk, userContext);
-    results.push(...chunkResults);
-    // 5 seconds between chunks to respect Gemini free tier rate limits 
-    // (Free tier is 15 RPM / 1M TPM / 1500 RPD)
-    if (i + 10 < videos.length) {
-      console.log(`Waiting to respect Gemini rate limits (${results.length}/${videos.length} mapped)...`);
+  let quotaDailyHit = false;
+
+  for (let i = 0; i < videos.length; i += CHUNK_SIZE) {
+    if (quotaDailyHit) {
+      // RPD exhausted — use keyword fallback for all remaining videos
+      const remaining = videos.slice(i);
+      console.log(`[Classification] Using keyword fallback for remaining ${remaining.length} videos (RPD exhausted).`);
+      results.push(...keywordFallbackClassify(remaining, userContext));
+      break;
+    }
+
+    const chunk = videos.slice(i, i + CHUNK_SIZE);
+    try {
+      const chunkResults = await classifyBatch(chunk, userContext);
+      results.push(...chunkResults);
+    } catch (err) {
+      if (err.name === 'QuotaDailyExhaustedError') {
+        quotaDailyHit = true;
+        // Fallback for this chunk and all remaining
+        const remaining = videos.slice(i);
+        console.log(`[Classification] RPD hit at chunk ${i}. Keyword fallback for ${remaining.length} videos.`);
+        results.push(...keywordFallbackClassify(remaining, userContext));
+        break;
+      }
+      // Any other unexpected error — fallback for this chunk and continue
+      console.error(`[Classification] Unexpected error at chunk ${i}:`, err.message);
+      results.push(...keywordFallbackClassify(chunk, userContext));
+    }
+
+    // 8 seconds between chunks = max 7.5 RPM (50% headroom below 15 RPM limit)
+    if (i + CHUNK_SIZE < videos.length && !quotaDailyHit) {
+      console.log(`[Classification] Waiting 8s between chunks (${results.length}/${videos.length} done)...`);
       await new Promise((r) => setTimeout(r, 8000));
     }
   }
+
+  const geminiCount = results.filter((r) => !r.source).length;
+  const fallbackCount = results.filter((r) => r.source === 'keyword_fallback').length;
+  console.log(`[Classification] Complete: ${geminiCount} Gemini, ${fallbackCount} keyword-fallback`);
+
   return results;
 }
 
@@ -162,8 +365,8 @@ function aggregateClassificationResults(classifiedVideos, watchHistory) {
 
   const interestBreakdown = {};
   classifiedVideos.forEach((v) => {
-    if (v.category === 'interest' && v.interestMatch) {
-      interestBreakdown[v.interestMatch] = (interestBreakdown[v.interestMatch] || 0) + 1;
+    if (v.category === 'interest' && v.matchedInterest) {
+      interestBreakdown[v.matchedInterest] = (interestBreakdown[v.matchedInterest] || 0) + 1;
     }
   });
 

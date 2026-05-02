@@ -1,53 +1,9 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Camera, X, Upload, File as FileIcon, CheckCircle, Info, Lock } from 'lucide-react'
-
-const MOCK_INSTAGRAM_DATA = {
-  dateRange: { start: '2024-11-01', end: '2025-02-01' },
-  totalVideos: 847,
-  inferredSessions: [
-    { start: Date.now() - 86400000 * 2 - 79200000, end: Date.now() - 86400000 * 2 - 75600000, durationMinutes: 60, eventCount: 42 },
-    { start: Date.now() - 86400000 * 1 - 75600000, end: Date.now() - 86400000 * 1 - 72000000, durationMinutes: 60, eventCount: 38 },
-    { start: Date.now() - 86400000 * 3 - 43200000, end: Date.now() - 86400000 * 3 - 41400000, durationMinutes: 30, eventCount: 19 },
-    { start: Date.now() - 86400000 * 4 - 3600000, end: Date.now() - 86400000 * 4 - 0, durationMinutes: 60, eventCount: 51 },
-    { start: Date.now() - 86400000 * 5 - 82800000, end: Date.now() - 86400000 * 5 - 79200000, durationMinutes: 60, eventCount: 44 },
-  ],
-  hourlyHeatmap: Array.from({ length: 24 }, (_, h) => ({
-    hour: h,
-    count: [2, 1, 0, 0, 0, 1, 3, 8, 12, 10, 8, 6, 14, 10, 8, 6, 10, 12, 18, 24, 31, 28, 22, 14][h] || 0,
-    label: h < 12 ? (h === 0 ? '12 AM' : `${h} AM`) : (h === 12 ? '12 PM' : `${h - 12} PM`)
-  })),
-  dayOfWeekHeatmap: [
-    { day: 0, count: 124, label: 'Sun' }, { day: 1, count: 98, label: 'Mon' },
-    { day: 2, count: 87, label: 'Tue' }, { day: 3, count: 76, label: 'Wed' },
-    { day: 4, count: 91, label: 'Thu' }, { day: 5, count: 134, label: 'Fri' },
-    { day: 6, count: 237, label: 'Sat' },
-  ],
-}
-
-const MOCK_YOUTUBE_DATA = {
-  timestamps: [],
-  totalVideos: 203,
-  dateRange: { start: '2024-11-01', end: '2025-02-01' },
-  hourlyHeatmap: Array.from({ length: 24 }, (_, h) => ({
-    hour: h,
-    count: [1, 0, 0, 0, 0, 2, 4, 10, 14, 12, 10, 8, 18, 14, 12, 10, 8, 6, 10, 8, 6, 4, 3, 2][h] || 0,
-  })),
-  dayOfWeekHeatmap: [
-    { day: 0, count: 31, label: 'Sun' }, { day: 1, count: 35, label: 'Mon' },
-    { day: 2, count: 29, label: 'Tue' }, { day: 3, count: 26, label: 'Wed' },
-    { day: 4, count: 31, label: 'Thu' }, { day: 5, count: 24, label: 'Fri' },
-    { day: 6, count: 29, label: 'Sat' },
-  ],
-}
-
-const readStorage = (key) => {
-  try {
-    const s = localStorage.getItem(key)
-    return s ? JSON.parse(s) : null
-  } catch { return null }
-}
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { Camera, X, Upload, File as FileIcon, CheckCircle, Info, Lock, Sparkles, Trash2 } from 'lucide-react'
+import api from '../../lib/axios'
+import { useQueryClient } from '@tanstack/react-query'
 
 const formatDateLabel = (dateStr) => {
   if (!dateStr) return ''
@@ -55,32 +11,191 @@ const formatDateLabel = (dateStr) => {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }).toUpperCase()
 }
 
-// Inline dummy parsers to keep component self-contained for demo
-const parseVideosWatched = (data) => Array.isArray(data) ? data : []
-const parseYourTopics = (data) => Array.isArray(data) ? data : []
-const parseAdsViewed = (data) => Array.isArray(data) ? data : []
-const buildHourlyHeatmap = () => MOCK_INSTAGRAM_DATA.hourlyHeatmap
-const buildDayOfWeekHeatmap = () => MOCK_INSTAGRAM_DATA.dayOfWeekHeatmap
-const getEchoChamberScore = () => ({ uniqueCreators: 10, totalVideos: 100, score: 50 })
-const inferSessionsFromTimestamps = () => MOCK_INSTAGRAM_DATA.inferredSessions
+/**
+ * Parse videos_watched.json client-side into an aggregated summary.
+ * Returns { videosWatchedCount, dailyActivity, peakHourFromTimestamps, topics, dateRange }
+ */
+const buildAggregatedPayload = (videosWatched, yourTopics, adsViewed) => {
+  const extractArray = (data) => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') {
+      for (const key of Object.keys(data)) {
+        if (Array.isArray(data[key])) return data[key];
+      }
+    }
+    return [];
+  };
 
-export default function CrossPlatformMap() {
+  const videos = extractArray(videosWatched);
+  const ads = extractArray(adsViewed);
+  const allMedia = [...videos, ...ads];
+
+  const topicsRaw = extractArray(yourTopics);
+  const topics = topicsRaw.map(t => t?.string_map_data?.Name?.value || t?.string_list_data?.[0]?.value || t?.name || t).filter(Boolean);
+
+  const dailyMap = {}
+  const hourCounts = Array.from({ length: 24 }, () => 0)
+  const dayCounts = {}
+  let minDate = null
+  let maxDate = null
+
+  for (const v of allMedia) {
+    // Instagram exports use string_map_data.Time.timestamp (seconds) or title + href
+    let ts = null;
+    if (v?.string_map_data?.Author?.timestamp) {
+      ts = v.string_map_data.Author.timestamp;
+      if (ts < 100000000000) ts *= 1000;
+    } else if (v?.string_map_data?.Time?.timestamp) {
+      ts = v.string_map_data.Time.timestamp;
+      if (ts < 100000000000) ts *= 1000;
+    } else if (v?.string_list_data?.[0]?.timestamp) {
+      ts = v.string_list_data[0].timestamp;
+      if (ts < 100000000000) ts *= 1000;
+    } else if (v?.timestamp) {
+      ts = v.timestamp;
+      if (ts < 100000000000) ts *= 1000;
+    }
+
+    if (!ts) continue;
+    const date = new Date(ts);
+    const dayKey = date.toISOString().slice(0, 10) // YYYY-MM-DD
+    const hour = date.getUTCHours()
+    const dayOfWeek = date.getUTCDay()
+
+    if (!dailyMap[dayKey]) dailyMap[dayKey] = { date: dayKey, reelCount: 0, peakHour: null, hourMap: {} }
+    dailyMap[dayKey].reelCount += 1
+    dailyMap[dayKey].hourMap[hour] = (dailyMap[dayKey].hourMap[hour] || 0) + 1
+    hourCounts[hour] += 1
+    dayCounts[dayOfWeek] = (dayCounts[dayOfWeek] || 0) + 1
+
+    if (!minDate || date < minDate) minDate = date
+    if (!maxDate || date > maxDate) maxDate = date
+  }
+
+  // Compute per-day estimated minutes (1 min per Reel) and peak hour
+  const dailyActivity = Object.values(dailyMap).map(d => {
+    // Find peak hour for this day
+    let maxH = -1, peakH = null
+    for (const [h, c] of Object.entries(d.hourMap)) {
+      if (c > maxH) { maxH = c; peakH = parseInt(h) }
+    }
+    return {
+      date: d.date,
+      reelCount: d.reelCount,
+      estimatedMinutes: d.reelCount * 1, // 1 min per Reel (conservative estimate)
+      peakHour: peakH,
+    }
+  }).sort((a, b) => a.date.localeCompare(b.date))
+
+  const peakHour = hourCounts.indexOf(Math.max(...hourCounts))
+
+  // Find peak day of week
+  let peakDay = null, maxDC = -1
+  for (const [d, c] of Object.entries(dayCounts)) {
+    if (c > maxDC) { maxDC = c; peakDay = parseInt(d) }
+  }
+
+  // Build interest distribution by matching Instagram topics against user's declared interests
+  // This avoids sending raw data to Gemini — pure string matching, free and instant.
+  let interestDistribution = {}
+  try {
+    const stored = JSON.parse(localStorage.getItem('scrollsense_onboarding') || '{}')
+    const userInterests = (stored.interests || []).map(i => i.label?.toLowerCase()).filter(Boolean)
+    if (userInterests.length > 0 && topics.length > 0) {
+      const matchedTopics = {}
+      topics.forEach(topic => {
+        const topicLower = topic.toLowerCase()
+        for (const interest of userInterests) {
+          if (topicLower.includes(interest) || interest.includes(topicLower)) {
+            matchedTopics[interest] = (matchedTopics[interest] || 0) + 1
+            break
+          }
+        }
+      })
+      const totalMatched = Object.values(matchedTopics).reduce((s, v) => s + v, 0) || 1
+      const totalMinutes = dailyActivity.reduce((s, d) => s + d.estimatedMinutes, 0)
+      // Distribute total IG minutes across matched interests proportionally
+      Object.entries(matchedTopics).forEach(([interest, count]) => {
+        interestDistribution[interest] = Math.round((count / totalMatched) * totalMinutes)
+      })
+    }
+  } catch (e) { /* localStorage unavailable */ }
+
+  return {
+    videosWatchedCount: videos.length,
+    dailyActivity,
+    peakHourFromTimestamps: peakHour,
+    peakDayFromTimestamps: peakDay,
+    topics: topics.slice(0, 100),
+    interestDistribution,
+    dateRange: {
+      start: minDate ? minDate.toISOString().slice(0, 10) : null,
+      end: maxDate ? maxDate.toISOString().slice(0, 10) : null,
+    }
+  }
+}
+
+export default function CrossPlatformMap({ crossPlatformData, instagramUploaded, isLoading: isLoadingProp }) {
   const fileInputRef = useRef(null)
-  
-  const [instagramData, setInstagramData] = useState(() => readStorage('scrollsense_instagram_processed'))
-  const [youtubeData] = useState(() => readStorage('scrollsense_youtube_processed'))
-  
-  const hasInstagram = instagramData !== null
-  
-  const igData = instagramData || MOCK_INSTAGRAM_DATA
-  const ytData = youtubeData || MOCK_YOUTUBE_DATA
-  
+  const queryClient = useQueryClient()
+
+  // Derive state from props
+  const cpData = crossPlatformData || {}
+  const dailyTimelineRaw = cpData.dailyTimeline || []
+  const historicTimeline = cpData.historicDailyTimeline || []
+  const platformSplit = cpData.platformSplit || {}
+  const hasInstagram = !!instagramUploaded
+  const isYtLoading = isLoadingProp
+
+  // Build YouTube & Instagram totals from cross-platform data
+  const ytTotalMinutes = dailyTimelineRaw.reduce((s, d) => s + (d.youtubeMinutes || 0), 0)
+  const currentWeekIgTotal = dailyTimelineRaw.reduce((s, d) => s + (d.instagramMinutes || 0), 0)
+
+  // Decouple timeline: if Instagram is selected but has 0 minutes this week, show historic snapshot!
+  const hasYouTubeData = ytTotalMinutes > 0
+
   const [showUploadGuide, setShowUploadGuide] = useState(!hasInstagram)
-  const [reminderSet, setReminderSet] = useState(() => !!readStorage('scrollsense_instagram_reminder'))
-  const [reminderTime, setReminderTime] = useState('8 HOURS')
   const [activeView, setActiveView] = useState('combined')
   const [fileMap, setFileMap] = useState({})
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
+  
+  const handleClearInstagramData = async () => {
+    if (!window.confirm("Are you sure you want to completely remove your historic Instagram data?")) return
+    setIsDeleting(true)
+    try {
+      await api.delete('/patterns/instagram')
+      // Clear up localStorage flags
+      localStorage.removeItem('scrollsense_instagram_processed')
+      localStorage.removeItem('scrollsense_instagram_topics')
+      
+      const keysToInvalidate = [
+        ['youtube-dashboard'],
+        ['patterns-cross-platform'],
+        ['echoChamber'],
+        ['triggerPatterns'],
+        ['habitNudge'],
+        ['progress-time-refund'],
+        ['progress-trends'],
+        ['digest-checkin'],
+        ['digest-status'],
+      ]
+      keysToInvalidate.forEach(key => queryClient.invalidateQueries({ queryKey: key }))
+      
+      setShowUploadGuide(true)
+      setActiveView('youtube')
+    } catch (err) {
+      console.error('Delete failed', err)
+      setUploadError(err?.response?.data?.error || 'Failed to remove data. Please try again.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const isShowingHistoricIgSnapshot = activeView === 'instagram' && hasInstagram && currentWeekIgTotal === 0 && historicTimeline.length > 0;
+  const igTotalMinutes = isShowingHistoricIgSnapshot ? cpData.historicInstagramMinutes || currentWeekIgTotal : currentWeekIgTotal;
+  const dailyTimeline = isShowingHistoricIgSnapshot ? historicTimeline : dailyTimelineRaw;
 
   const handleFileSelect = (e) => {
     const files = Array.from(e.target.files)
@@ -116,99 +231,90 @@ export default function CrossPlatformMap() {
     })
   }
 
-  const handleSetReminder = () => {
-    const hours = parseInt(reminderTime) || 8
-    localStorage.setItem('scrollsense_instagram_reminder', JSON.stringify({
-      setAt: new Date().toISOString(),
-      remindAfterHours: hours,
-      remindAt: new Date(Date.now() + hours * 3600000).toISOString()
-    }))
-    setReminderSet(true)
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission()
-    }
-  }
-
-  const handleCancelReminder = () => {
-    localStorage.removeItem('scrollsense_instagram_reminder')
-    setReminderSet(false)
-  }
-
-  const handleProcessFiles = () => {
+  const handleProcessFiles = async () => {
     setIsProcessing(true)
-    
-    setTimeout(() => {
-      // Simulate processing
-      const videos = fileMap['videos_watched.json'] ? parseVideosWatched(fileMap['videos_watched.json']) : []
-      const topics = fileMap['your_topics.json'] ? parseYourTopics(fileMap['your_topics.json']) : []
-      const ads = fileMap['ads_viewed.json'] ? parseAdsViewed(fileMap['ads_viewed.json']) : []
-      
-      const allTs = [Date.now() - 86400000, Date.now() - 172800000] // Dummy timestamps for mock
-      
-      const processed = {
-        processedAt: new Date().toISOString(),
-        totalVideos: videos.length || MOCK_INSTAGRAM_DATA.totalVideos,
-        totalAds: ads.length,
-        dateRange: MOCK_INSTAGRAM_DATA.dateRange,
-        hourlyHeatmap: buildHourlyHeatmap(allTs),
-        dayOfWeekHeatmap: buildDayOfWeekHeatmap(allTs),
-        echoChamberData: getEchoChamberScore(videos),
-        inferredSessions: inferSessionsFromTimestamps(allTs),
-        sourceFiles: Object.keys(fileMap),
+    setUploadError(null)
+    try {
+      const videosWatched = fileMap['videos_watched.json']
+      const yourTopics = fileMap['your_topics.json']
+      const adsViewed = fileMap['ads_viewed.json']
+
+      const extractArray = (data) => {
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === 'object') {
+          for (const key of Object.keys(data)) {
+            if (Array.isArray(data[key])) return data[key];
+          }
+        }
+        return [];
+      };
+
+      if (!videosWatched || extractArray(videosWatched).length === 0) {
+        setUploadError('videos_watched.json is required but was not found or is empty.')
+        setIsProcessing(false)
+        return
       }
-      
-      localStorage.setItem('scrollsense_instagram_processed', JSON.stringify(processed))
-      if (topics.length > 0) {
-        localStorage.setItem('scrollsense_instagram_topics', JSON.stringify(topics))
+
+      // Build aggregated payload client-side — no raw files sent to server
+      const payload = buildAggregatedPayload(videosWatched, yourTopics, adsViewed)
+
+      // Store topics in localStorage for InterestBudgetTracker display
+      if (payload.topics && payload.topics.length > 0) {
+        localStorage.setItem('scrollsense_instagram_topics', JSON.stringify(payload.topics))
       }
-      
-      setInstagramData(processed)
-      setIsProcessing(false)
+      localStorage.setItem('scrollsense_instagram_processed', 'true')
+
+      await api.post('/patterns/instagram-upload', payload)
+
+      // After successful upload, invalidate ALL data-dependent queries so every
+      // page refreshes with combined YouTube + Instagram metrics.
+      const keysToInvalidate = [
+        ['youtube-dashboard'],
+        ['patterns-cross-platform'],
+        ['echoChamber'],
+        ['triggerPatterns'],
+        ['habitNudge'],
+        ['progress-time-refund'],
+        ['progress-trends'],
+        ['digest-checkin'],
+        ['digest-status'],
+      ]
+      keysToInvalidate.forEach(key => queryClient.invalidateQueries({ queryKey: key }))
+
       setShowUploadGuide(false)
-    }, 1500)
+      setFileMap({})
+    } catch (err) {
+      console.error('Upload failed', err)
+      setUploadError(err?.response?.data?.error || 'Upload failed. Please try again.')
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
-  const hourlyChartData = Array.from({ length: 24 }, (_, h) => {
-    const ytHour = ytData.hourlyHeatmap.find(x => x.hour === h)
-    const igHour = igData.hourlyHeatmap.find(x => x.hour === h)
-    const label = h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`
-    return {
-      hour: h,
-      label,
-      youtube: ytHour?.count || 0,
-      instagram: igHour?.count || 0,
-      total: (ytHour?.count || 0) + (igHour?.count || 0),
-    }
-  })
-
-  // Peak overlap
-  const avgYT = hourlyChartData.reduce((s, h) => s + h.youtube, 0) / 24
-  const avgIG = hourlyChartData.reduce((s, h) => s + h.instagram, 0) / 24
-  const overlapHours = hourlyChartData.filter(h => h.youtube > avgYT && h.instagram > avgIG)
-
+  // Build chart data from cross-platform daily timeline
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  const weeklyChartData = Array.from({ length: 7 }, (_, d) => {
-    const ytDay = ytData.dayOfWeekHeatmap.find(x => x.day === d)
-    const igDay = igData.dayOfWeekHeatmap.find(x => x.day === d)
-    return {
-      day: days[d],
-      youtube: ytDay?.count || 0,
-      instagram: igDay?.count || 0,
-    }
+  const weeklyChartData = days.map((dayName, dayIndex) => {
+    const dayEntries = dailyTimeline.filter(d => {
+      const date = new Date(d.date + 'T00:00:00Z')
+      return date.getUTCDay() === dayIndex
+    })
+    const youtube = dayEntries.reduce((s, d) => s + (d.youtubeMinutes || 0), 0)
+    const instagram = dayEntries.reduce((s, d) => s + (d.instagramMinutes || 0), 0)
+    return { day: dayName, youtube, instagram }
   })
 
-  let mostIGDay = weeklyChartData[0]
-  let mostYTDay = weeklyChartData[0]
+  let mostIGDay = weeklyChartData[0] || { day: 'Sun', instagram: 0, youtube: 0 }
+  let mostYTDay = weeklyChartData[0] || { day: 'Sun', instagram: 0, youtube: 0 }
   weeklyChartData.forEach(d => {
     if ((d.instagram - d.youtube) > (mostIGDay.instagram - mostIGDay.youtube)) mostIGDay = d
     if ((d.youtube - d.instagram) > (mostYTDay.youtube - mostYTDay.instagram)) mostYTDay = d
   })
 
-  const chartH = typeof window !== 'undefined' && window.innerWidth < 768 ? 160 : 200
   const barChartH = typeof window !== 'undefined' && window.innerWidth < 768 ? 150 : 180
 
-  const ytPct = Math.round((ytData.totalVideos / (ytData.totalVideos + igData.totalVideos)) * 100) || 0
-  const igPct = 100 - ytPct
+  // Platform split from backend
+  const ytPct = platformSplit.youtubePercent || 0
+  const igPct = platformSplit.instagramPercent || 0
 
   const renderTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -232,7 +338,7 @@ export default function CrossPlatformMap() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
@@ -246,21 +352,25 @@ export default function CrossPlatformMap() {
             CROSS-PLATFORM SNAPSHOT
           </div>
           <h2 className="text-2xl md:text-4xl font-bold uppercase tracking-tighter leading-[0.85] text-[#FAFAFA]">
-            WHERE AND WHEN YOU SCROLL
+            {isShowingHistoricIgSnapshot ? 'YOUR INSTAGRAM SNAPSHOT' : 'WHERE AND WHEN YOU SCROLL'}
           </h2>
           <div className="border border-[#3F3F46] px-3 py-1 inline-flex items-center gap-2 mt-2">
             <Camera size={11} className="text-[#A1A1AA]" />
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
-              {hasInstagram 
-                ? `SNAPSHOT: ${formatDateLabel(igData.dateRange.start)} — ${formatDateLabel(igData.dateRange.end)}`
-                : "SNAPSHOT NOT YET UPLOADED"}
+              {isShowingHistoricIgSnapshot
+                ? 'LIFETIME INSTAGRAM RECORD'
+                : cpData.dataWindowLabel
+                  ? cpData.dataWindowLabel
+                  : hasYouTubeData
+                    ? 'YOUTUBE: THIS WEEK'
+                    : 'SNAPSHOT NOT YET UPLOADED'}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="border border-[#3F3F46] px-2 py-1 text-[10px] font-bold text-[#A1A1AA]">F11</div>
           {hasInstagram && (
-            <button 
+            <button
               onClick={() => setShowUploadGuide(true)}
               className="text-[10px] uppercase tracking-widest text-[#3F3F46] hover:text-[#A1A1AA] transition-colors"
             >
@@ -331,8 +441,8 @@ export default function CrossPlatformMap() {
                       Unzip the downloaded file. Navigate to:
                     </p>
                     <div className="bg-[#09090B] p-2 mt-2 font-mono text-[10px] text-[#DFE104] break-all">
-                      your_instagram_activity/logged_information/videos_watched.json <span className="text-[#3F3F46]">← REQUIRED</span><br/>
-                      ads_information/ads_and_topics/your_topics.json <span className="text-[#3F3F46]">← RECOMMENDED</span><br/>
+                      your_instagram_activity/logged_information/videos_watched.json <span className="text-[#3F3F46]">← REQUIRED</span><br />
+                      ads_information/ads_and_topics/your_topics.json <span className="text-[#3F3F46]">← RECOMMENDED</span><br />
                       ads_information/ads_and_topics/ads_viewed.json <span className="text-[#3F3F46]">← OPTIONAL</span>
                     </div>
                   </div>
@@ -343,10 +453,10 @@ export default function CrossPlatformMap() {
                   <div className="w-full relative">
                     <h4 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] mb-1">UPLOAD HERE</h4>
                     <p className="text-xs text-[#A1A1AA] leading-relaxed mb-3">
-                      All processing happens in your browser — files are never sent to any server.
+                      Secure, one-time processing helps build your historical snapshot. Your raw files are discarded after processing.
                     </p>
-                    
-                    <div 
+
+                    <div
                       className="border-2 border-dashed border-[#3F3F46] p-4 md:p-6 text-center hover:border-[#DFE104]/40 transition-all cursor-pointer"
                       onDragOver={e => e.preventDefault()}
                       onDrop={handleDrop}
@@ -359,11 +469,11 @@ export default function CrossPlatformMap() {
                       <div className="text-[10px] text-[#A1A1AA] mt-1">
                         videos_watched.json · your_topics.json · ads_viewed.json
                       </div>
-                      <input 
-                        type="file" 
-                        multiple 
-                        accept=".json" 
-                        hidden 
+                      <input
+                        type="file"
+                        multiple
+                        accept=".json"
+                        hidden
                         ref={fileInputRef}
                         onChange={handleFileSelect}
                       />
@@ -386,54 +496,12 @@ export default function CrossPlatformMap() {
                 </div>
               </div>
 
-              {/* REMINDER SECTION */}
-              <div className="border-t border-[#3F3F46] pt-5 mt-5">
-                {!reminderSet ? (
-                  <>
-                    <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-3">
-                      SET A REMINDER FOR WHEN YOUR EXPORT IS READY
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <select 
-                        value={reminderTime}
-                        onChange={(e) => setReminderTime(e.target.value)}
-                        className="bg-[#27272A] border border-[#3F3F46] px-3 py-2 text-xs uppercase text-[#FAFAFA] rounded-none outline-none focus:border-[#DFE104]"
-                      >
-                        <option value="6 HOURS">6 HOURS</option>
-                        <option value="8 HOURS">8 HOURS</option>
-                        <option value="10 HOURS">10 HOURS</option>
-                        <option value="24 HOURS">TOMORROW</option>
-                      </select>
-                      <button 
-                        onClick={handleSetReminder}
-                        className="border-2 border-[#DFE104] bg-transparent text-[#DFE104] font-bold uppercase tracking-tighter px-6 py-2 text-xs rounded-none hover:bg-[#DFE104] hover:text-black transition-all h-[36px]"
-                      >
-                        REMIND ME
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <CheckCircle size={14} className="text-[#DFE104]" />
-                    <span className="text-xs uppercase tracking-widest text-[#DFE104]">
-                      REMINDER SET — WE'LL NUDGE YOU IN {reminderTime}
-                    </span>
-                    <button 
-                      onClick={handleCancelReminder}
-                      className="text-[10px] uppercase text-[#3F3F46] hover:text-[#A1A1AA]"
-                    >
-                      · CANCEL
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* PROCESS BUTTON */}
               {Object.keys(fileMap).length > 0 && (
                 <div className="mt-5">
                   {isProcessing ? (
                     <div className="h-14 border-2 border-[#DFE104] p-1 flex items-center relative overflow-hidden">
-                      <motion.div 
+                      <motion.div
                         className="absolute top-0 left-0 bottom-0 bg-[#DFE104]/20"
                         initial={{ width: 0 }}
                         animate={{ width: "100%" }}
@@ -441,10 +509,10 @@ export default function CrossPlatformMap() {
                       />
                       <div className="relative w-full flex flex-col items-center justify-center">
                         <span className="text-xs uppercase tracking-widest text-[#DFE104] font-bold">
-                          PROCESSING YOUR INSTAGRAM DATA...
+                          SECURELY PROCESSING YOUR INSTAGRAM DATA...
                         </span>
                         <span className="text-[10px] text-[#A1A1AA] mt-0.5">
-                          No data is being sent to any server.
+                          Files are discarded after processing.
                         </span>
                       </div>
                     </div>
@@ -463,39 +531,68 @@ export default function CrossPlatformMap() {
         )}
       </AnimatePresence>
 
-      {/* TEASER STATE (NO DATA, NO GUIDE) */}
+      {/* UPLOAD ERROR */}
+      {uploadError && (
+        <div className="border border-red-500/40 bg-red-500/10 px-4 py-3 mb-6 text-xs uppercase tracking-wider text-red-400">
+          {uploadError}
+        </div>
+      )}
+
+      {/* YOUTUBE LOADING STATE */}
+      {isYtLoading && !hasInstagram && (
+        <div className="border-2 border-[#3F3F46] p-6 text-center text-[#A1A1AA] mb-6">
+          <Sparkles className="mx-auto mb-2 animate-pulse" size={20} />
+          <p className="text-xs uppercase tracking-widest">Loading YouTube activity...</p>
+        </div>
+      )}
+
+      {/* TEASER STATE — no Instagram yet, show YouTube-only data (or prompt to upload if no YT either) */}
       {!hasInstagram && !showUploadGuide && (
-        <div className="text-center py-12">
-          <div className="text-[6rem] font-bold text-[#27272A] leading-none select-none" aria-hidden>?</div>
-          <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] mt-2">
-            UPLOAD YOUR INSTAGRAM EXPORT TO SEE THE FULL PICTURE
-          </h3>
-          <p className="text-xs text-[#A1A1AA] mt-2 max-w-xs mx-auto leading-relaxed">
-            YouTube data alone shows only part of your scroll habits.
-          </p>
-          <button 
+        <div className="mb-6">
+          {hasYouTubeData ? (
+            // YouTube exists: show YouTube-only charts + prompt to add Instagram
+            <div>
+              <div className="border border-[#DFE104]/20 bg-[#DFE104]/5 px-4 py-3 mb-6 flex items-start gap-3">
+                <Info size={13} className="text-[#DFE104] flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest text-[#DFE104] mb-0.5">YOUTUBE ONLY — ADD INSTAGRAM FOR THE FULL PICTURE</p>
+                  <p className="text-[10px] text-[#A1A1AA] leading-relaxed">Charts below show your YouTube activity. Upload your Instagram export to compare both platforms.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-[6rem] font-bold text-[#27272A] leading-none select-none" aria-hidden>?</div>
+              <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] mt-2">
+                UPLOAD YOUR INSTAGRAM EXPORT TO SEE THE FULL PICTURE
+              </h3>
+              <p className="text-xs text-[#A1A1AA] mt-2 max-w-xs mx-auto leading-relaxed">
+                YouTube data alone shows only part of your scroll habits.
+              </p>
+            </div>
+          )}
+          <button
             onClick={() => setShowUploadGuide(true)}
-            className="border-2 border-[#3F3F46] px-6 py-3 text-xs uppercase tracking-tighter text-[#FAFAFA] mt-6 rounded-none hover:border-[#FAFAFA]/30 transition-all font-bold min-h-[44px]"
+            className="border-2 border-[#3F3F46] px-6 py-3 text-xs uppercase tracking-tighter text-[#FAFAFA] mt-2 rounded-none hover:border-[#FAFAFA]/30 transition-all font-bold min-h-[44px]"
           >
-            SHOW ME HOW →
+            SHOW ME HOW TO ADD INSTAGRAM →
           </button>
         </div>
       )}
 
-      {/* DATA LOADED STATE - CHARTS */}
-      {hasInstagram && (
-        <motion.div 
+      {/* DATA CHARTS — shown with YouTube data even without Instagram */}
+      {(hasYouTubeData || hasInstagram) && (
+        <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
         >
           {/* SECTION 1 — OVERVIEW */}
           <div className="flex flex-col md:flex-row border-2 border-[#3F3F46] mb-6 w-full md:w-fit font-bold rounded-none">
-            {['combined', 'youtube', 'instagram'].map(view => (
+            {(hasInstagram ? ['combined', 'youtube', 'instagram'] : ['youtube']).map(view => (
               <button
                 key={view}
-                onClick={() => setActiveView(view)}
-                className={`flex-1 md:flex-none px-4 py-2 text-xs uppercase tracking-wider transition-all duration-200 min-h-[44px] ${
-                  activeView === view ? 'bg-[#DFE104] text-black' : 'bg-transparent text-[#A1A1AA] hover:bg-[#27272A]/50'
-                }`}
+                onClick={() => setActiveView(hasInstagram ? view : 'youtube')}
+                className={`flex-1 md:flex-none px-4 py-2 text-xs uppercase tracking-wider transition-all duration-200 min-h-[44px] ${(hasInstagram ? activeView : 'youtube') === view ? 'bg-[#DFE104] text-black' : 'bg-transparent text-[#A1A1AA] hover:bg-[#27272A]/50'
+                  }`}
               >
                 {view}
               </button>
@@ -505,15 +602,19 @@ export default function CrossPlatformMap() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div className="border border-[#3F3F46] bg-[#09090B] p-4">
               <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">
-                TOTAL EVENTS TRACKED
+                {activeView === 'instagram' && hasInstagram ? 'INSTAGRAM SCROLL TIME' : 'YOUTUBE SCROLL TIME'}
               </div>
               <div className="text-base md:text-2xl font-bold uppercase text-[#FAFAFA]">
-                {activeView === 'combined' ? (igData.totalVideos + ytData.totalVideos) :
-                 activeView === 'youtube' ? ytData.totalVideos : igData.totalVideos}
+                {activeView === 'instagram' && hasInstagram
+                  ? `${Math.round(igTotalMinutes)}m`
+                  : hasYouTubeData
+                    ? `${Math.round(ytTotalMinutes)}m`
+                    : '—'}
               </div>
               <div className="text-[10px] uppercase text-[#3F3F46] mt-1">
-                {activeView === 'combined' ? "ACROSS BOTH PLATFORMS" :
-                 activeView === 'youtube' ? "YOUTUBE VIDEOS" : "INSTAGRAM REELS"}
+                {activeView === 'instagram' && hasInstagram
+                  ? (isShowingHistoricIgSnapshot ? 'LIFETIME INSTAGRAM MINUTES' : 'INSTAGRAM MINUTES THIS WEEK')
+                  : 'TOTAL YOUTUBE MINUTES'}
               </div>
             </div>
 
@@ -522,10 +623,10 @@ export default function CrossPlatformMap() {
                 DATA COVERS
               </div>
               <div className="text-base md:text-lg font-bold uppercase text-[#FAFAFA]">
-                {formatDateLabel(igData.dateRange.start)} — {formatDateLabel(igData.dateRange.end)}
+                {isShowingHistoricIgSnapshot ? 'LIFETIME SNAPSHOT' : (cpData.dataWindowLabel || 'THIS WEEK')}
               </div>
               <div className="text-[10px] uppercase text-[#3F3F46] mt-1">
-                HISTORICAL SNAPSHOT
+                {isShowingHistoricIgSnapshot ? 'HISTORIC INSTAGRAM RECORD' : (cpData.isSnapshot ? 'CROSS-PLATFORM SNAPSHOT' : 'YOUTUBE LIVE DATA')}
               </div>
             </div>
 
@@ -533,66 +634,56 @@ export default function CrossPlatformMap() {
               <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">
                 PLATFORM SPLIT
               </div>
-              <div className="w-full h-[8px] flex mt-2">
-                <div className="bg-[#DFE104] h-full" style={{ width: `${ytPct}%` }} />
-                <div className="bg-[#FAFAFA]/35 h-full" style={{ width: `${igPct}%` }} />
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-[10px] text-[#DFE104] font-bold">YT {ytPct}%</span>
-                <span className="text-[10px] text-[#A1A1AA] font-bold">IG {igPct}%</span>
-              </div>
+              {hasInstagram ? (
+                <>
+                  <div className="w-full h-[8px] flex mt-2">
+                    <div className="bg-[#DFE104] h-full" style={{ width: `${ytPct}%` }} />
+                    <div className="bg-[#FAFAFA]/35 h-full" style={{ width: `${igPct}%` }} />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[10px] text-[#DFE104] font-bold">YT {ytPct}%</span>
+                    <span className="text-[10px] text-[#A1A1AA] font-bold">IG {igPct}%</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-[#3F3F46] uppercase tracking-wider mt-2">INSTAGRAM NOT YET UPLOADED</div>
+              )}
             </div>
           </div>
 
-          {/* SECTION 2 — HOURLY ACTIVITY */}
+          {/* SECTION 2 — DAILY TIMELINE */}
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA]">
-                ACTIVITY BY HOUR OF DAY
+                DAILY ACTIVITY THIS WEEK
               </h3>
-              <span className="text-[10px] uppercase text-[#3F3F46] hidden sm:block">BASED ON HISTORICAL DATA</span>
+              <span className="text-[10px] uppercase text-[#3F3F46] hidden sm:block">MINUTES PER DAY</span>
             </div>
 
-            <div style={{ height: chartH }} className="w-full">
+            <div style={{ height: barChartH }} className="w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={hourlyChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                <BarChart data={dailyTimeline.map(d => ({
+                  ...d,
+                  label: new Date(d.date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase(),
+                  youtube: d.youtubeMinutes || 0,
+                  instagram: d.instagramMinutes || 0,
+                }))} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barSize={14} barCategoryGap="20%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272A" vertical={false} />
-                  <XAxis 
-                    dataKey="label" 
-                    ticks={['12AM', '6AM', '12PM', '6PM', '10PM']} 
-                    axisLine={false} 
-                    tickLine={false} 
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
                     tick={{ fill: '#A1A1AA', fontSize: 10, fontFamily: 'Space Grotesk' }}
                   />
                   <YAxis hide />
-                  <Tooltip content={renderTooltip} cursor={{ stroke: '#3F3F46', strokeWidth: 1 }} />
+                  <Tooltip content={renderTooltip} cursor={{ fill: '#27272A', opacity: 0.4 }} />
                   {activeView !== 'instagram' && (
-                    <Area 
-                      type="monotone" 
-                      dataKey="youtube" 
-                      name="YouTube" 
-                      stackId="1" 
-                      fill="#DFE104" 
-                      fillOpacity={0.2} 
-                      stroke="#DFE104" 
-                      strokeWidth={1.5} 
-                      isAnimationActive={false}
-                    />
+                    <Bar dataKey="youtube" fill="#DFE104" name="YouTube" isAnimationActive={false} />
                   )}
-                  {activeView !== 'youtube' && (
-                    <Area 
-                      type="monotone" 
-                      dataKey="instagram" 
-                      name="Instagram" 
-                      stackId="1" 
-                      fill="rgba(250,250,250,0.35)" 
-                      fillOpacity={0.8} 
-                      stroke="rgba(250,250,250,0.3)" 
-                      strokeWidth={1} 
-                      isAnimationActive={false}
-                    />
+                  {hasInstagram && activeView !== 'youtube' && (
+                    <Bar dataKey="instagram" fill="rgba(250,250,250,0.4)" name="Instagram" isAnimationActive={false} />
                   )}
-                </AreaChart>
+                </BarChart>
               </ResponsiveContainer>
             </div>
 
@@ -603,27 +694,22 @@ export default function CrossPlatformMap() {
                   <span className="text-[10px] uppercase font-bold text-[#A1A1AA]">YOUTUBE</span>
                 </div>
               )}
-              {activeView !== 'youtube' && (
+              {hasInstagram && activeView !== 'youtube' && (
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-[#FAFAFA]/35" />
-                  <span className="text-[10px] uppercase font-bold text-[#A1A1AA]">INSTAGRAM REELS</span>
+                  <span className="text-[10px] uppercase font-bold text-[#A1A1AA]">INSTAGRAM</span>
                 </div>
               )}
-              <div className="text-[10px] uppercase text-[#3F3F46]">
-                CREATOR USERNAME + TIMESTAMP ONLY — NO VIDEO TITLES
-              </div>
             </div>
 
-            {overlapHours.length > 0 && activeView === 'combined' && (
+            {/* SWITCHING DAYS INSIGHT */}
+            {cpData.switchingDays > 0 && activeView === 'combined' && (
               <div className="border-l-4 border-[#DFE104] pl-4 py-3 bg-[#27272A]/30 pr-4 mt-4">
                 <div className="text-xs uppercase tracking-widest text-[#DFE104] font-bold mb-1">
-                  PLATFORM OVERLAP DETECTED
+                  PLATFORM SWITCHING DETECTED
                 </div>
                 <p className="text-xs text-[#A1A1AA] leading-relaxed">
-                  {overlapHours[0].label} — {overlapHours[overlapHours.length - 1].label} shows high activity on BOTH YouTube and Instagram.
-                </p>
-                <p className="text-xs text-[#3F3F46] mt-1">
-                  This time window is likely when you platform-switch — scrolling one app until it gets boring, then switching.
+                  You used both YouTube and Instagram on {cpData.switchingDays} day{cpData.switchingDays > 1 ? 's' : ''} this week.
                 </p>
               </div>
             )}
@@ -641,10 +727,10 @@ export default function CrossPlatformMap() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyChartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }} barSize={14} barCategoryGap="20%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272A" vertical={false} />
-                  <XAxis 
-                    dataKey="day" 
-                    axisLine={false} 
-                    tickLine={false} 
+                  <XAxis
+                    dataKey="day"
+                    axisLine={false}
+                    tickLine={false}
                     tick={{ fill: '#A1A1AA', fontSize: 10, fontFamily: 'Space Grotesk' }}
                   />
                   <YAxis hide />
@@ -652,7 +738,7 @@ export default function CrossPlatformMap() {
                   {activeView !== 'instagram' && (
                     <Bar dataKey="youtube" fill="#DFE104" name="YouTube" isAnimationActive={false} />
                   )}
-                  {activeView !== 'youtube' && (
+                  {hasInstagram && activeView !== 'youtube' && (
                     <Bar dataKey="instagram" fill="rgba(250,250,250,0.4)" name="Instagram" isAnimationActive={false} />
                   )}
                 </BarChart>
@@ -660,33 +746,56 @@ export default function CrossPlatformMap() {
             </div>
 
             <div className="flex gap-3 flex-wrap mt-4">
-              <div className="bg-[#DFE104]/10 border border-[#DFE104]/30 px-4 py-2 font-bold">
-                <span className="text-[10px] uppercase tracking-widest text-[#DFE104]">
-                  {mostYTDay.day} IS YOUR MOST YOUTUBE-HEAVY DAY
-                </span>
-              </div>
-              <div className="bg-[#27272A] border border-[#3F3F46] px-4 py-2 font-bold">
-                <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
-                  {mostIGDay.day} IS YOUR MOST INSTAGRAM-HEAVY DAY
-                </span>
-              </div>
+              {hasYouTubeData && (
+                <div className="bg-[#DFE104]/10 border border-[#DFE104]/30 px-4 py-2 font-bold">
+                  <span className="text-[10px] uppercase tracking-widest text-[#DFE104]">
+                    {mostYTDay.day} IS YOUR MOST YOUTUBE-HEAVY DAY
+                  </span>
+                </div>
+              )}
+              {hasInstagram && (
+                <div className="bg-[#27272A] border border-[#3F3F46] px-4 py-2 font-bold">
+                  <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
+                    {mostIGDay.day} IS YOUR MOST INSTAGRAM-HEAVY DAY
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
           {/* DATA HONESTY FOOTER */}
-          <div className="border-t border-[#3F3F46] pt-4 mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-start gap-2">
-              <Info size={11} className="text-[#3F3F46] flex-shrink-0 mt-0.5" />
-              <div className="text-[10px] text-[#3F3F46] leading-relaxed uppercase tracking-wider">
-                INSTAGRAM DATA IS A HISTORICAL SNAPSHOT. Re-upload your export anytime to refresh it with more recent data.
+          <div className="border-t border-[#3F3F46] pt-4 mt-6 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+              {hasInstagram && (
+                <div className="flex items-start gap-2">
+                  <Info size={11} className="text-[#3F3F46] flex-shrink-0 mt-0.5" />
+                  <div className="text-[10px] text-[#3F3F46] leading-relaxed uppercase tracking-wider">
+                    INSTAGRAM DATA IS A HISTORICAL SNAPSHOT. Re-upload your export anytime to refresh it with more recent data.
+                  </div>
+                </div>
+              )}
+              <div className="flex items-start gap-2">
+                <Lock size={11} className="text-[#3F3F46] flex-shrink-0 mt-0.5" />
+                <div className="text-[10px] text-[#3F3F46] leading-relaxed uppercase tracking-wider">
+                  {hasInstagram
+                    ? 'PRIVACY-FIRST. Only aggregated counts are sent to the server. Raw Instagram files never leave your browser.'
+                    : 'YOUTUBE DATA: Live from your connected account. Updates automatically after each sync.'}
+                </div>
               </div>
             </div>
-            <div className="flex items-start gap-2">
-              <Lock size={11} className="text-[#3F3F46] flex-shrink-0 mt-0.5" />
-              <div className="text-[10px] text-[#3F3F46] leading-relaxed uppercase tracking-wider">
-                ALL PROCESSING HAPPENS IN YOUR BROWSER. Raw Instagram files are never sent to any server.
-              </div>
-            </div>
+            
+            {hasInstagram && (
+              <button
+                onClick={handleClearInstagramData}
+                disabled={isDeleting}
+                className="flex items-center gap-2 border border-red-500/20 bg-red-500/5 px-4 py-2 hover:bg-red-500/10 transition-colors flex-shrink-0"
+              >
+                <Trash2 size={12} className="text-red-400" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">
+                  {isDeleting ? "CLEARING..." : "CLEAR INSTAGRAM DATA"}
+                </span>
+              </button>
+            )}
           </div>
         </motion.div>
       )}

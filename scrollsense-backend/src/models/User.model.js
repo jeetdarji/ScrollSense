@@ -36,6 +36,7 @@ const userSchema = new Schema({
   youtubeConnected:         { type: Boolean, default: false },
   youtubeConnectedAt:       { type: Date, default: null },
   youtubeLastSyncAt:        { type: Date, default: null },
+  youtubeDataUnavailable:   { type: Boolean, default: false },
 
   // Top YouTube channels (public info — safe to store)
   topChannels: {
@@ -53,12 +54,42 @@ const userSchema = new Schema({
   instagramUploaded:        { type: Boolean, default: false },
   instagramLastUploadAt:    { type: Date, default: null },
 
+  // Instagram topics (from your_topics.json export)
+  instagramTopics: { type: [String], default: [] },
+  
+  // Habit nudge tracking
+  lastNudgeShownAt: { type: Date, default: null },
+  nudgeFeedback: {
+    type: [{
+      _id: false,
+      nudgeId: String,
+      action: { type: String, enum: ['acted_on', 'dismissed', 'ignored'] },
+      timestamp: { type: Date, default: Date.now },
+    }],
+    default: [],
+  },
+
   // Refresh token (stored hashed — compare with bcrypt)
   refreshTokenHash: { type: String, default: null },
+
+  // Notification Preferences
+  notificationPreferences: {
+    type: {
+      weeklyDigest: { type: Boolean, default: true },
+      emailDigest: { type: Boolean, default: false },
+      emailAddress: { type: String, default: '' },
+      dailyLimitAlerts: { type: Boolean, default: true },
+      instagramReminder: { type: Boolean, default: true },
+      instagramFrequency: { type: String, enum: ['monthly', '3months', '6months'], default: 'monthly' },
+      goalNudges: { type: Boolean, default: true }
+    },
+    default: () => ({}) // defaults applied by embedded subdocument defaults
+  },
 
   // Account state
   isActive:     { type: Boolean, default: true },
   lastLoginAt:  { type: Date, default: null },
+  deletionRequestedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 userSchema.methods.toSafeObject = function() {

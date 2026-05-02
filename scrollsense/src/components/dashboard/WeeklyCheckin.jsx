@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Clock, Target, TrendingDown, Lightbulb, Zap, CheckCircle, Lock } from 'lucide-react';
+import { Mail, Clock, Target, TrendingDown, Lightbulb, Zap, CheckCircle, Lock, Flame, Activity, BarChart2, CalendarDays } from 'lucide-react';
 import { useYouTubeData } from '../../hooks/useYouTubeData';
 import clsx from 'clsx';
 
@@ -12,12 +12,17 @@ const formatMinutes = (mins) => {
 };
 
 export default function WeeklyCheckin({ className }) {
-  const { checkin } = useYouTubeData();
+  const { checkin, currentWeek } = useYouTubeData();
   const [isEmailOn, setIsEmailOn] = useState(false);
   const [showEmailInput, setShowEmailInput] = useState(false);
 
   const renderColdStart = () => {
     const pct = Math.min(((checkin?.sessionsLogged ?? 0) / 3) * 100, 100);
+    const goalPct = currentWeek?.goal ?? 0;
+    const interestPct = currentWeek?.interest ?? 0;
+    const junkPct = currentWeek?.junk ?? 100;
+    const hasContentData = (currentWeek?.totalVideos ?? 0) > 0;
+
     return (
       <div className="py-6">
         <div className="flex items-center justify-between mb-6">
@@ -54,6 +59,22 @@ export default function WeeklyCheckin({ className }) {
           })}
         </div>
 
+        {hasContentData && (
+          <div className="mb-6">
+            <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-3">CONTENT DNA THIS WEEK</div>
+            <div className="flex w-full h-[8px] mb-2 overflow-hidden">
+              <div className="bg-[#DFE104] h-full transition-all duration-700" style={{ width: `${goalPct}%` }} title={`Goal ${goalPct}%`} />
+              <div className="bg-[#A1A1AA] h-full transition-all duration-700" style={{ width: `${interestPct}%` }} title={`Interest ${interestPct}%`} />
+              <div className="bg-[#3F3F46] h-full transition-all duration-700" style={{ width: `${junkPct}%` }} title={`Junk ${junkPct}%`} />
+            </div>
+            <div className="flex gap-4 text-[10px] uppercase tracking-widest">
+              <span className="text-[#DFE104]">GOAL {goalPct}%</span>
+              <span className="text-[#A1A1AA]">INTEREST {interestPct}%</span>
+              <span className="text-[#52525B]">JUNK {junkPct}%</span>
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-4">WHAT YOUR CHECK-IN WILL SHOW</div>
           <div className="grid grid-cols-2 gap-3">
@@ -61,7 +82,9 @@ export default function WeeklyCheckin({ className }) {
               { icon: Clock, text: "Total scroll time" },
               { icon: Target, text: "Goal relevance %" },
               { icon: TrendingDown, text: "Improvement vs before" },
-              { icon: Lightbulb, text: "One AI insight" }
+              { icon: Lightbulb, text: "One AI insight" },
+              { icon: BarChart2, text: "Content DNA breakdown" },
+              { icon: Flame, text: "Biggest scroll trigger" },
             ].map((item, i) => (
               <div key={i} className="border border-[#27272A] p-3 flex items-center gap-3">
                 <item.icon size={14} color="#3F3F46" className="flex-shrink-0" />
@@ -85,6 +108,18 @@ export default function WeeklyCheckin({ className }) {
     if (checkin?.triggerReason === 'sessions') triggerText = `GENERATED AFTER ${checkin?.sessionsLogged ?? 0} SESSIONS LOGGED`;
     if (checkin?.triggerReason === 'days') triggerText = "GENERATED AFTER 3 DAYS OF DATA";
 
+    // Content DNA from currentWeek (more accurate than checkin goalPercent which is session-based)
+    const goalPct = currentWeek?.goal ?? checkin?.goalPercent ?? 0;
+    const interestPct = currentWeek?.interest ?? 0;
+    const junkPct = currentWeek?.junk ?? (100 - goalPct - interestPct);
+    const totalVideos = currentWeek?.totalVideos ?? 0;
+
+    // Session quality: avg session vs improvement direction
+    const avgSession = checkin?.sessionsLogged > 0
+      ? Math.round((checkin?.totalScrollMinutes ?? 0) / checkin.sessionsLogged)
+      : 0;
+    const improvementDir = (checkin?.improvementMinutes ?? 0) > 0 ? 'down' : (checkin?.improvementMinutes ?? 0) < 0 ? 'up' : 'flat';
+
     return (
       <>
         <div className="flex items-center gap-2 mb-6">
@@ -92,26 +127,33 @@ export default function WeeklyCheckin({ className }) {
           <span className="text-xs uppercase tracking-widest text-[#A1A1AA]">{triggerText}</span>
         </div>
 
+        {/* Primary stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="flex flex-col border-b border-[#3F3F46] pb-4 md:border-b-0 md:border-r last:border-0 md:pr-4">
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">TOTAL SCROLL TIME</span>
             <span className="text-2xl font-bold uppercase text-[#FAFAFA]">{formatMinutes(checkin?.totalScrollMinutes ?? 0)}</span>
+            {checkin?.sessionsLogged > 0 && (
+              <span className="text-[10px] uppercase text-[#3F3F46] mt-1">{checkin.sessionsLogged} SESSIONS · {avgSession}M AVG</span>
+            )}
           </div>
           <div className="flex flex-col border-b border-[#3F3F46] pb-4 md:border-b-0 md:border-r last:border-0 md:px-4">
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">GOAL RELEVANT</span>
-            <span className="text-2xl font-bold uppercase text-[#DFE104]">{checkin?.goalPercent ?? 0}%</span>
+            <span className="text-2xl font-bold uppercase text-[#DFE104]">{goalPct}%</span>
+            {totalVideos > 0 && (
+              <span className="text-[10px] uppercase text-[#3F3F46] mt-1">{totalVideos} VIDEOS CLASSIFIED</span>
+            )}
           </div>
           <div className="flex flex-col border-b border-[#3F3F46] pb-4 md:border-b-0 md:border-r last:border-0 md:px-4">
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">VS PREVIOUS</span>
-            {(checkin?.improvementMinutes ?? 0) > 0 ? (
-              <span className="text-2xl font-bold uppercase text-[#DFE104]">-{(checkin?.improvementMinutes ?? 0)} MIN</span>
-            ) : (checkin?.improvementMinutes ?? 0) < 0 ? (
+            {improvementDir === 'down' ? (
+              <span className="text-2xl font-bold uppercase text-[#DFE104]">-{checkin?.improvementMinutes} MIN</span>
+            ) : improvementDir === 'up' ? (
               <span className="text-2xl font-bold uppercase text-red-500">+{Math.abs(checkin?.improvementMinutes ?? 0)} MIN</span>
             ) : (
               <span className="text-2xl font-bold uppercase text-[#3F3F46]">FIRST DATA</span>
             )}
             <span className="text-[10px] uppercase text-[#3F3F46] mt-1">
-              {checkin?.isFirstCheckin || (checkin?.improvementMinutes ?? 0) === 0 ? "BASELINE SET" : "FEWER MINUTES = BETTER"}
+              {checkin?.isFirstCheckin || improvementDir === 'flat' ? "BASELINE SET" : "FEWER MINUTES = BETTER"}
             </span>
           </div>
           <div className="flex flex-col border-[#3F3F46] pb-4 md:border-b-0 last:border-0 md:pl-4">
@@ -120,9 +162,41 @@ export default function WeeklyCheckin({ className }) {
           </div>
         </div>
 
+        {/* Content DNA — shows actual breakdown of goal/interest/junk from YouTube data */}
         <div className="mb-6">
-          <div className="text-xs uppercase text-[#A1A1AA] mb-3">PLATFORM SPLIT</div>
-          <div className="flex w-full h-[10px]">
+          <div className="text-xs uppercase text-[#A1A1AA] mb-2 flex items-center gap-2">
+            <BarChart2 size={11} color="#A1A1AA" />
+            CONTENT DNA THIS WEEK
+          </div>
+          <div className="flex w-full h-[10px] overflow-hidden mb-2">
+            <div className="bg-[#DFE104] h-full transition-all duration-700" style={{ width: `${goalPct}%` }} />
+            <div className="bg-[#A1A1AA] h-full transition-all duration-700" style={{ width: `${interestPct}%` }} />
+            <div className="bg-[#27272A] h-full transition-all duration-700 border-l border-[#3F3F46]" style={{ width: `${junkPct}%` }} />
+          </div>
+          <div className="flex gap-4 mt-1">
+            <span className="text-[10px] uppercase text-[#DFE104]">GOAL {goalPct}%</span>
+            <span className="text-[10px] uppercase text-[#A1A1AA]">INTEREST {interestPct}%</span>
+            <span className="text-[10px] uppercase text-[#52525B]">JUNK {junkPct}%</span>
+          </div>
+          {junkPct > 50 && (
+            <div className="mt-2 text-[10px] uppercase tracking-widest text-red-400">
+              · JUNK CONTENT OVER HALF — GOAL RELEVANT TARGET IS 30%+
+            </div>
+          )}
+          {goalPct >= 30 && (
+            <div className="mt-2 text-[10px] uppercase tracking-widest text-[#DFE104]">
+              · ON TRACK — GOAL-RELEVANT CONTENT ABOVE TARGET
+            </div>
+          )}
+        </div>
+
+        {/* Platform split */}
+        <div className="mb-6">
+          <div className="text-xs uppercase text-[#A1A1AA] mb-2 flex items-center gap-2">
+            <Activity size={11} color="#A1A1AA" />
+            PLATFORM SPLIT
+          </div>
+          <div className="flex w-full h-[8px]">
             <div className="bg-[#DFE104]" style={{ width: `${checkin?.platformBreakdown?.youtube ?? 0}%` }} />
             <div className="bg-[#3F3F46]" style={{ width: `${checkin?.platformBreakdown?.instagram ?? 0}%` }} />
           </div>
@@ -132,23 +206,41 @@ export default function WeeklyCheckin({ className }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Pattern cards — trigger, heaviest day, sessions */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="border border-[#3F3F46] p-4">
-            <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">BIGGEST TRIGGER</div>
-            <div className="text-lg font-bold uppercase tracking-tighter text-[#FAFAFA]">{checkin?.mostCommonTrigger ?? ''}</div>
+            <div className="flex items-center gap-2 mb-1">
+              <Flame size={11} color="#DFE104" />
+              <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">BIGGEST TRIGGER</div>
+            </div>
+            <div className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">{checkin?.mostCommonTrigger ?? 'N/A'}</div>
           </div>
           <div className="border border-[#3F3F46] p-4">
-            <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA] mb-1">HEAVIEST DAY</div>
-            <div className="text-lg font-bold uppercase tracking-tighter text-[#FAFAFA]">{checkin?.heaviestScrollDay ?? ''}</div>
+            <div className="flex items-center gap-2 mb-1">
+              <CalendarDays size={11} color="#A1A1AA" />
+              <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">HEAVIEST DAY</div>
+            </div>
+            <div className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">{checkin?.heaviestScrollDay ?? 'N/A'}</div>
+          </div>
+          <div className="border border-[#3F3F46] p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock size={11} color="#A1A1AA" />
+              <div className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">AVG SESSION</div>
+            </div>
+            <div className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">{avgSession > 0 ? `${avgSession}M` : 'N/A'}</div>
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-2">INTEREST BUDGETS</div>
-          <div className="text-sm text-[#A1A1AA] leading-relaxed">{checkin?.interestBudgetStatus ?? ''}</div>
-        </div>
+        {/* Interest budget status */}
+        {checkin?.interestBudgetStatus && (
+          <div className="mb-6 border border-[#27272A] px-4 py-3">
+            <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-1">INTEREST BUDGETS</div>
+            <div className="text-sm text-[#A1A1AA] leading-relaxed">{checkin.interestBudgetStatus}</div>
+          </div>
+        )}
 
-        <div className="border-l-4 border-[#DFE104] pl-5 py-4 bg-[#27272A]/30 pr-4">
+        {/* AI Insight */}
+        <div className="border-l-4 border-[#DFE104] pl-5 py-4 bg-[#27272A]/30 pr-4 mb-6">
           <div className="flex items-center gap-2 mb-2">
             <Lightbulb size={13} color="#DFE104" />
             <span className="text-xs uppercase tracking-widest text-[#DFE104] font-bold">AI INSIGHT</span>
@@ -160,7 +252,8 @@ export default function WeeklyCheckin({ className }) {
           </div>
         </div>
 
-        <div className="border-t border-[#3F3F46] pt-4 mt-6">
+        {/* Email opt-in */}
+        <div className="border-t border-[#3F3F46] pt-4 mt-2">
           {!isEmailOn ? (
             <>
               <div className="flex justify-between items-center h-6">

@@ -48,7 +48,7 @@ const CustomLegend = (props) => {
 };
 
 export default function ContentDietDashboard({ className }) {
-  const { isConnected, isLoading, isClassifying, weeklyBreakdown, currentWeek, contentSuggestions, topChannels, refetchStatus } = useYouTubeData();
+  const { isConnected, isLoading, isClassifying, weeklyBreakdown, currentWeek, contentSuggestions, topChannels, refetchStatus, instagramUploaded: serverInstagramUploaded, cycleInfo, instagramDataAvailable, weeklyPlatformBreakdown } = useYouTubeData();
   const [view, setView] = useState('WEEKLY');
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
@@ -59,6 +59,8 @@ export default function ContentDietDashboard({ className }) {
     } catch (err) {
       if (err.response?.data?.code === 'ONBOARDING_INCOMPLETE') {
         console.warn('Complete onboarding before connecting YouTube');
+      } else if (err.response?.data?.code === 'NO_GOOGLE_ACCOUNT' || err.response?.data?.code === 'YOUTUBE_DISCONNECTED') {
+        window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`;
       } else {
         console.error('Failed to connect YouTube', err.message);
       }
@@ -109,6 +111,8 @@ export default function ContentDietDashboard({ className }) {
   const diffGoal = currentWeek?.changeVsLastWeek?.goal ?? 0;
   const hasHistory = (currentWeek?.weeksOfData ?? 0) >= 2;
   const hasInstagram = !!localStorage.getItem('scrollsense_instagram_processed');
+  // Prefer server-side flag; fall back to localStorage for offline/legacy support
+  const instagramUploaded = serverInstagramUploaded || hasInstagram;
 
   const pieData = [
     { name: 'Goal Relevant', value: currentWeek?.goal ?? 0 },
@@ -177,6 +181,9 @@ export default function ContentDietDashboard({ className }) {
               ) : (
                 <div className="text-[10px] md:text-xs text-[#3F3F46] mt-1">FIRST WEEK</div>
               )}
+              <div className="text-[10px] uppercase tracking-widest text-[#3F3F46] mt-1">
+                {instagramDataAvailable ? 'YT + IG' : 'YOUTUBE'}
+              </div>
             </div>
 
             <div className="flex flex-col">
@@ -206,7 +213,7 @@ export default function ContentDietDashboard({ className }) {
               </div>
               <div className="flex flex-col mt-1">
                 <span className="text-[10px] text-[#3F3F46] uppercase">YOUTUBE THIS WEEK</span>
-                {hasInstagram && (
+                {instagramUploaded && (
                   <span className="text-[10px] text-[#3F3F46] uppercase mt-0.5">+ INSTAGRAM TIMING</span>
                 )}
               </div>
@@ -223,7 +230,22 @@ export default function ContentDietDashboard({ className }) {
                 </p>
               </div>
             ) : (
-              <div style={{ height: chartH }} className="w-full">
+              <div>
+                {cycleInfo?.isNewCycle && (
+                  <div className="mb-4 border border-[#DFE104]/30 bg-[#DFE104]/5 px-3 py-2 text-center">
+                    <span className="text-[10px] uppercase tracking-widest text-[#DFE104] font-bold">
+                      NEW CYCLE {cycleInfo.cycleNumber} — WEEK {cycleInfo.weekInCycle}
+                    </span>
+                  </div>
+                )}
+                {cycleInfo?.totalWeeksEver > 7 && !cycleInfo?.isNewCycle && (
+                  <div className="mb-3 text-right">
+                    <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
+                      CYCLE {cycleInfo.cycleNumber} · SHOWING LAST {weeklyBreakdown?.length || 0} WEEKS
+                    </span>
+                  </div>
+                )}
+                <div style={{ height: chartH }} className="w-full">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                   <BarChart data={weeklyBreakdown} margin={{ top: 8, right: 8, left: -20, bottom: 0 }} barSize={28} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272A" vertical={false} />
@@ -245,13 +267,16 @@ export default function ContentDietDashboard({ className }) {
                       YOUTUBE — VIDEO TITLES CLASSIFIED
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className="w-2 h-2 bg-[#3F3F46] inline-block" />
-                    <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
-                      INSTAGRAM — CREATOR TIMING ONLY
-                    </span>
-                  </div>
+                  {instagramUploaded && (
+                    <div className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-[#3F3F46] inline-block" />
+                      <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">
+                        INSTAGRAM — CREATOR TIMING ONLY
+                      </span>
+                    </div>
+                  )}
                 </div>
+              </div>
               </div>
             )
           ) : (
@@ -292,20 +317,32 @@ export default function ContentDietDashboard({ className }) {
 
               <div>
                 <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-4">TOP CHANNELS THIS WEEK</div>
-                <div className="flex flex-col">
-                  {topChannels.map((c, i) => (
-                    <div key={i} className="flex items-center gap-3 py-3 border-b border-[#3F3F46] last:border-0">
-                      <div className="w-2 h-2 rounded-none flex-shrink-0" style={{ backgroundColor: c.category === 'goal' ? '#DFE104' : c.category === 'interest' ? 'rgba(250,250,250,0.4)' : '#3F3F46' }} />
-                      <div className="flex-1">
-                        <div className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] truncate">{c.name}</div>
-                        <div className={clsx("text-[10px] uppercase tracking-widest mt-0.5", c.category === 'goal' ? "text-[#DFE104]" : c.category === 'interest' ? "text-[#A1A1AA]" : "text-[#3F3F46]")}>
-                          {c.category}
+                {topChannels.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-[3rem] font-bold text-[#27272A] leading-none mb-2" aria-hidden="true">—</div>
+                    <p className="text-xs uppercase tracking-widest text-[#3F3F46]">CHANNELS WILL APPEAR AFTER CLASSIFICATION</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    {topChannels.slice(0, 8).map((c, i) => (
+                      <div key={c.channelId || i} className="flex items-center gap-3 py-3 border-b border-[#3F3F46] last:border-0">
+                        <div className="w-2 h-2 rounded-none flex-shrink-0" style={{ backgroundColor: c.category === 'goal' ? '#DFE104' : c.category === 'interest' ? 'rgba(250,250,250,0.4)' : '#3F3F46' }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] truncate">{c.channelName}</div>
+                          <div className={`text-[10px] uppercase tracking-widest mt-0.5 ${c.category === 'goal' ? 'text-[#DFE104]' : c.category === 'interest' ? 'text-[#A1A1AA]' : 'text-[#3F3F46]'}`}>
+                            {c.category}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <div className="text-sm font-bold uppercase text-[#A1A1AA]">{c.count} VIDEOS</div>
+                          {(c.watchMinutes != null && c.watchMinutes > 0) && (
+                            <div className="text-[10px] uppercase tracking-widest text-[#3F3F46] mt-0.5">{formatMinutes(c.watchMinutes)} WATCHED</div>
+                          )}
                         </div>
                       </div>
-                      <div className="text-sm font-bold uppercase text-[#A1A1AA] flex-shrink-0">{c.minutes} MIN</div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-col gap-1 mt-4">
                   <div className="flex items-center gap-1.5">
                     <EyeOff size={11} color="#3F3F46" />
@@ -313,14 +350,29 @@ export default function ContentDietDashboard({ className }) {
                       YOUTUBE: video titles classified then discarded — only category label stored
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Info size={11} color="#3F3F46" />
-                    <span className="text-[10px] text-[#3F3F46] uppercase tracking-wider">
-                      INSTAGRAM: creator usernames only — video titles not available in instagram's export
-                    </span>
-                  </div>
+                  {instagramUploaded && (
+                    <div className="flex items-center gap-1.5">
+                      <Info size={11} color="#3F3F46" />
+                      <span className="text-[10px] text-[#3F3F46] uppercase tracking-wider">
+                        INSTAGRAM: creator usernames only — video titles not available in export
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Instagram section — only if user has uploaded Instagram data */}
+          {instagramUploaded && view === 'BREAKDOWN' && (
+            <div className="mt-6 pt-6 border-t border-[#3F3F46]">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 bg-[#A1A1AA]" />
+                <span className="text-xs uppercase tracking-widest text-[#A1A1AA]">INSTAGRAM DATA INCLUDED</span>
+              </div>
+              <p className="text-xs text-[#3F3F46] uppercase tracking-wider leading-relaxed">
+                Instagram session timing is tracked. Creator names are used for topic matching — video titles are not available in Instagram's export format.
+              </p>
             </div>
           )}
 

@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import { Clock, Target, Heart, Plus, X } from 'lucide-react';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
+import React, { useState, useEffect } from 'react';
+import { Clock, Target, Heart, Plus, X, Loader2 } from 'lucide-react';
 
 const DEFAULT_GOALS = [
   "Read 2 books a month",
@@ -15,21 +14,35 @@ const PRESET_INTERESTS = [
   "Technology", "Design", "Fitness", "History", "Science", "Art", "Music", "Business", "Gaming"
 ];
 
-const AccountSettings = () => {
-  const [onboarding, setOnboarding] = useLocalStorage('scrollsense_onboarding', {
-    dailyLimitMinutes: 90,
-    goals: [],
-    interests: []
-  });
+const AccountSettings = ({ settings, saveAccountSettings, isSavingAccount }) => {
+  // Use local state tracking for inputs, initializing from server props safely
+  const [limitValue, setLimitValue] = useState(settings?.dailyLimitMinutes || 90);
+  const [goals, setGoals] = useState(settings?.goals || []);
+  const [interests, setInterests] = useState(settings?.interests || []);
+  const [saveSuccessMap, setSaveSuccessMap] = useState({});
 
-  const [limitValue, setLimitValue] = useState(onboarding.dailyLimitMinutes || 90);
-  const [goals, setGoals] = useState(onboarding.goals || []);
-  const [interests, setInterests] = useState(onboarding.interests || []);
+  useEffect(() => {
+    if (settings) {
+      setLimitValue(settings.dailyLimitMinutes || 90);
+      setGoals(settings.goals || []);
+      setInterests(settings.interests || []);
+    }
+  }, [settings]);
 
-  const saveSettings = (key, value) => {
-    setOnboarding(prev => ({ ...prev, [key]: value }));
-    // Simulate API call
-    // axios.put('/api/user/settings', { [key]: value }).catch(console.error);
+  const saveSettings = async (key, value) => {
+    try {
+      // Sync back to local storage for backward compatibility with old components
+      const currentOnboarding = JSON.parse(localStorage.getItem('scrollsense_onboarding') || '{}');
+      localStorage.setItem('scrollsense_onboarding', JSON.stringify({ ...currentOnboarding, [key]: value }));
+      
+      await saveAccountSettings({ [key]: value });
+
+      // Show temporary success feedback
+      setSaveSuccessMap(prev => ({ ...prev, [key]: true }));
+      setTimeout(() => setSaveSuccessMap(prev => ({ ...prev, [key]: false })), 2000);
+    } catch (error) {
+      console.error(`Failed to save ${key}:`, error);
+    }
   };
 
   const handleSaveLimit = () => {
@@ -51,21 +64,26 @@ const AccountSettings = () => {
   };
 
   const addInterest = (interestName) => {
-    if (!interests.find(i => i.name === interestName)) {
-      const newInterests = [...interests, { name: interestName, budget: 30 }];
+    if (!interests.find(i => i.label === interestName)) {
+      const id = interestName.toLowerCase().replace(/\s+/g, '_');
+      const newInterests = [...interests, { id, label: interestName, dailyMinutes: 30 }];
       setInterests(newInterests);
       saveSettings('interests', newInterests);
     }
   };
 
-  const updateInterestBudget = (name, budget) => {
-    const newInterests = interests.map(i => i.name === name ? { ...i, budget } : i);
+  const updateInterestBudget = (id, dailyMinutes) => {
+    const newInterests = interests.map(i => i.id === id ? { ...i, dailyMinutes } : i);
     setInterests(newInterests);
+  };
+  
+  const handleInterestBudgetRelease = (id, dailyMinutes) => {
+    const newInterests = interests.map(i => i.id === id ? { ...i, dailyMinutes } : i);
     saveSettings('interests', newInterests);
   };
 
-  const removeInterest = (name) => {
-    const newInterests = interests.filter(i => i.name !== name);
+  const removeInterest = (id) => {
+    const newInterests = interests.filter(i => i.id !== id);
     setInterests(newInterests);
     saveSettings('interests', newInterests);
   };
@@ -107,17 +125,22 @@ const AccountSettings = () => {
 
         <button
           onClick={handleSaveLimit}
-          className="w-full mt-6 bg-[#DFE104] text-black font-bold h-12 uppercase tracking-tighter text-sm rounded-none hover:bg-white transition-colors"
+          disabled={isSavingAccount}
+          className="w-full mt-6 bg-[#DFE104] text-black font-bold h-12 uppercase tracking-tighter text-sm rounded-none hover:bg-white transition-colors flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
         >
-          SAVE LIMIT
+          {isSavingAccount && !saveSuccessMap.dailyLimitMinutes ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+          {saveSuccessMap.dailyLimitMinutes ? "LIMIT SAVED!" : "SAVE LIMIT"}
         </button>
       </div>
 
       {/* GOALS */}
       <div className="border-2 border-[#3F3F46] bg-[#09090B] p-5 rounded-none">
-        <div className="flex items-center gap-2 mb-4">
-          <Target className="w-[14px] h-[14px] text-[#FAFAFA]" />
-          <h3 className="text-xs font-bold uppercase text-[#FAFAFA] m-0">YOUR GOALS</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Target className="w-[14px] h-[14px] text-[#FAFAFA]" />
+            <h3 className="text-xs font-bold uppercase text-[#FAFAFA] m-0">YOUR GOALS</h3>
+          </div>
+          {saveSuccessMap.goals && <span className="text-[10px] uppercase text-[#DFE104] font-bold">SAVED</span>}
         </div>
 
         <div className="flex flex-wrap gap-2 mb-6">
@@ -152,19 +175,22 @@ const AccountSettings = () => {
 
       {/* INTERESTS */}
       <div className="border-2 border-[#3F3F46] bg-[#09090B] p-5 rounded-none">
-        <div className="flex items-center gap-2 mb-4">
-          <Heart className="w-[14px] h-[14px] text-[#FAFAFA]" />
-          <h3 className="text-xs font-bold uppercase text-[#FAFAFA] m-0">YOUR INTERESTS & BUDGETS</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Heart className="w-[14px] h-[14px] text-[#FAFAFA]" />
+            <h3 className="text-xs font-bold uppercase text-[#FAFAFA] m-0">YOUR INTERESTS & BUDGETS</h3>
+          </div>
+          {saveSuccessMap.interests && <span className="text-[10px] uppercase text-[#DFE104] font-bold">SAVED</span>}
         </div>
 
         <div className="flex flex-col gap-5 mb-6">
           {interests.map(interest => (
-            <div key={interest.name} className="flex flex-col gap-2">
+            <div key={interest.id} className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold uppercase text-[#FAFAFA]">{interest.name}</span>
+                <span className="text-xs font-bold uppercase text-[#FAFAFA]">{interest.label}</span>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-[#DFE104]">{interest.budget}%</span>
-                  <button onClick={() => removeInterest(interest.name)} className="text-[#3F3F46] hover:text-red-400">
+                  <span className="text-xs font-mono text-[#DFE104]">{interest.dailyMinutes} MIN</span>
+                  <button onClick={() => removeInterest(interest.id)} className="text-[#3F3F46] hover:text-red-400">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -172,10 +198,12 @@ const AccountSettings = () => {
               <input
                 type="range"
                 min="5"
-                max="100"
+                max="120"
                 step="5"
-                value={interest.budget}
-                onChange={(e) => updateInterestBudget(interest.name, parseInt(e.target.value))}
+                value={interest.dailyMinutes}
+                onChange={(e) => updateInterestBudget(interest.id, parseInt(e.target.value))}
+                onMouseUp={(e) => handleInterestBudgetRelease(interest.id, parseInt(e.target.value))}
+                onTouchEnd={(e) => handleInterestBudgetRelease(interest.id, parseInt(e.target.value))}
                 className="w-full h-1 bg-[#27272A] appearance-none cursor-pointer accent-[#DFE104] outline-none"
               />
             </div>
@@ -189,7 +217,7 @@ const AccountSettings = () => {
           ADD MORE INTERESTS:
         </div>
         <div className="flex flex-wrap gap-2">
-          {PRESET_INTERESTS.filter(i => !interests.find(existing => existing.name === i)).map(interest => (
+          {PRESET_INTERESTS.filter(i => !interests.find(existing => existing.label === i)).map(interest => (
             <button
               key={interest}
               onClick={() => addInterest(interest)}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Target, TrendingUp, TrendingDown, Minus, Info, EyeOff, ChevronDown, Plus } from 'lucide-react';
+import { Target, TrendingUp, TrendingDown, Minus, Info, EyeOff, ChevronDown, Plus, Award } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { useYouTubeData } from '../../hooks/useYouTubeData';
 import YouTubeConnectPrompt from './YouTubeConnectPrompt';
@@ -19,8 +19,26 @@ const CustomTooltip = ({ active, payload }) => {
   return null;
 };
 
+const getGrade = (score) => {
+  if (score >= 50) return { grade: 'A', color: '#DFE104', label: 'EXCELLENT' };
+  if (score >= 35) return { grade: 'B', color: '#DFE104', label: 'GOOD' };
+  if (score >= 20) return { grade: 'C', color: '#A1A1AA', label: 'AVERAGE' };
+  if (score >= 10) return { grade: 'D', color: '#A1A1AA', label: 'BELOW AVG' };
+  return { grade: 'F', color: '#3F3F46', label: 'FEW ALIGNED' };
+};
+
+const getPercentile = (score) => {
+  // Rough percentile vs 8% global average
+  if (score >= 50) return 'TOP 5%';
+  if (score >= 35) return 'TOP 15%';
+  if (score >= 20) return 'TOP 30%';
+  if (score >= 12) return 'TOP 50%';
+  if (score >= 8) return 'ABOVE AVG';
+  return 'BELOW AVG';
+};
+
 export default function GoalRelevanceScore({ className }) {
-  const { isConnected, isLoading, currentWeek, goalScoreHistory, contentSuggestions, refetchDashboard } = useYouTubeData();
+  const { isConnected, isLoading, currentWeek, goalScoreHistory, contentSuggestions, refetchDashboard, instagramDataAvailable } = useYouTubeData();
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
   const onConnect = async () => {
@@ -28,7 +46,13 @@ export default function GoalRelevanceScore({ className }) {
       await api.post('/youtube/connect');
       refetchDashboard();
     } catch (err) {
-      console.error('YouTube connect failed:', err.message);
+      if (err.response?.data?.code === 'ONBOARDING_INCOMPLETE') {
+        console.warn('Complete onboarding before connecting YouTube');
+      } else if (err.response?.data?.code === 'NO_GOOGLE_ACCOUNT' || err.response?.data?.code === 'YOUTUBE_DISCONNECTED') {
+        window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`;
+      } else {
+        console.error('YouTube connect failed:', err.message);
+      }
     }
   };
 
@@ -53,12 +77,17 @@ export default function GoalRelevanceScore({ className }) {
   const diff = currentWeek?.changeVsLastWeek?.goal ?? 0;
   const diffFromAvg = (currentWeek?.goal ?? 0) - 8;
   const hasHistory = (currentWeek?.weeksOfData ?? 0) >= 2;
+  const currentScore = currentWeek?.goal ?? 0;
+  const gradeInfo = getGrade(currentScore);
+  const percentile = getPercentile(currentScore);
 
   let storedFocusArea = 'YOUR FOCUS AREA';
+  let storedGoals = [];
   try {
     const stored = JSON.parse(localStorage.getItem('scrollsense_onboarding') || '{}');
     if (stored.careerPath) storedFocusArea = stored.careerPath;
     else if (stored.careerPathPreset) storedFocusArea = stored.careerPathPreset;
+    storedGoals = stored.goals || [];
   } catch(e) {}
 
   return (
@@ -75,11 +104,23 @@ export default function GoalRelevanceScore({ className }) {
 
       <div className="flex flex-col md:flex-row md:items-end gap-4 mb-8">
         <div className="flex flex-col">
-          <div className="flex items-end gap-1">
-            <span className="text-[clamp(4rem,10vw,7rem)] font-bold uppercase tracking-tighter leading-none text-[#DFE104]">
-              {currentWeek?.goal ?? 0}
-            </span>
-            <span className="text-[2rem] font-bold text-[#A1A1AA] mb-2">%</span>
+          <div className="flex items-end gap-3">
+            <div className="flex items-end gap-1">
+              <span className="text-[clamp(4rem,10vw,7rem)] font-bold uppercase tracking-tighter leading-none text-[#DFE104]">
+                {currentScore}
+              </span>
+              <span className="text-[2rem] font-bold text-[#A1A1AA] mb-2">%</span>
+            </div>
+            {/* Grade Badge */}
+            <div className="mb-3 flex flex-col items-center">
+              <div
+                className="w-12 h-12 border-2 flex items-center justify-center"
+                style={{ borderColor: gradeInfo.color }}
+              >
+                <span className="text-xl font-bold" style={{ color: gradeInfo.color }}>{gradeInfo.grade}</span>
+              </div>
+              <span className="text-[9px] uppercase tracking-widest mt-1" style={{ color: gradeInfo.color }}>{gradeInfo.label}</span>
+            </div>
           </div>
           
           <div className="mt-2 text-xs uppercase tracking-widest">
@@ -93,6 +134,28 @@ export default function GoalRelevanceScore({ className }) {
             ) : (
               <span className="text-[#3F3F46]">WEEK 1 — BASELINE SET</span>
             )}
+          </div>
+
+          {/* Percentile bar */}
+          <div className="mt-3">
+            <div className="flex justify-between items-baseline mb-1">
+              <span className="text-[10px] uppercase tracking-widest text-[#3F3F46]">GLOBAL PERCENTILE</span>
+              <span className="text-[10px] uppercase tracking-widest font-bold" style={{ color: gradeInfo.color }}>{percentile}</span>
+            </div>
+            <div className="w-full h-[4px] bg-[#27272A] overflow-hidden">
+              <div
+                className="h-full transition-all duration-700"
+                style={{
+                  width: `${Math.min((currentScore / 50) * 100, 100)}%`,
+                  backgroundColor: gradeInfo.color
+                }}
+              />
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-[9px] text-[#3F3F46]">0%</span>
+              <span className="text-[9px] text-[#A1A1AA]">8% AVG</span>
+              <span className="text-[9px] text-[#3F3F46]">50%+</span>
+            </div>
           </div>
         </div>
 
@@ -136,9 +199,19 @@ export default function GoalRelevanceScore({ className }) {
       <div className="mt-4 flex items-center gap-2">
         <Target size={12} color="#DFE104" />
         <span className="text-xs uppercase tracking-widest text-[#A1A1AA]">
-          CONTENT MATCHED AGAINST: {storedFocusArea.toUpperCase()}
+          MATCHED AGAINST: {storedFocusArea.toUpperCase()}
         </span>
       </div>
+
+      {storedGoals.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {storedGoals.slice(0, 4).map((goal, i) => (
+            <div key={i} className="border border-[#3F3F46] px-2 py-0.5 text-[10px] uppercase tracking-widest text-[#3F3F46]">
+              {goal}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ display:'flex', alignItems:'center', gap:'6px', 
                     marginTop:'6px', marginBottom:'1.5rem' }}>
@@ -149,6 +222,14 @@ export default function GoalRelevanceScore({ className }) {
           diversity only — titles not available in export
         </span>
       </div>
+      {instagramDataAvailable && (
+        <div style={{ display:'flex', alignItems:'center', gap:'6px', marginTop:'6px' }}>
+          <span style={{ fontSize:'10px', color:'#DFE104',
+                         textTransform:'uppercase', letterSpacing:'0.08em', fontWeight: 'bold' }}>
+            SCORE INCLUDES YOUTUBE + INSTAGRAM ACTIVITY
+          </span>
+        </div>
+      )}
 
       <div className="mt-2 mb-6">
         <div className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-4">THIS WEEK'S BREAKDOWN</div>

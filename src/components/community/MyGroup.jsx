@@ -2,14 +2,33 @@ import React, { useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function MyGroup({ group }) {
+export default function MyGroup({
+  group,
+  membership,
+  onLeaveGroup,
+  onRequestNewGroup,
+  isLeaving = false,
+  isRequestingNewGroup = false,
+}) {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leaveError, setLeaveError] = useState(null);
 
-  const handleLeave = () => {
-    localStorage.removeItem('scrollsense_my_group');
-    localStorage.removeItem('scrollsense_weekly_sub');
-    localStorage.removeItem('scrollsense_group_feed');
-    window.location.reload();
+  const handleLeave = async () => {
+    setLeaveError(null);
+    try {
+      await onLeaveGroup();
+    } catch (err) {
+      setLeaveError(err?.response?.data?.error || 'Failed to leave group. Try again.');
+    }
+  };
+
+  const handleRequestNew = async () => {
+    setLeaveError(null);
+    try {
+      await onRequestNewGroup();
+    } catch (err) {
+      setLeaveError(err?.response?.data?.error || 'Failed to request new group. Try again.');
+    }
   };
 
   const formatDate = (isoString) => {
@@ -17,6 +36,8 @@ export default function MyGroup({ group }) {
     const d = new Date(isoString);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
   };
+
+  if (!group || !membership) return null;
 
   return (
     <motion.div
@@ -32,12 +53,12 @@ export default function MyGroup({ group }) {
             YOUR GROUP
           </p>
           <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tighter text-[#FAFAFA] leading-[0.9]">
-            {group.displayName}
+            {group.name}
           </h1>
           <div className="mt-2 border border-[#3F3F46] px-3 py-1 inline-flex items-center gap-2">
             <Calendar size={11} color="#A1A1AA" />
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
-              WEEK {group.weekNumber} OF MEMBERSHIP
+              WEEK {membership.weekOfMembership} OF MEMBERSHIP
             </span>
           </div>
         </div>
@@ -47,7 +68,7 @@ export default function MyGroup({ group }) {
             YOU ARE
           </p>
           <p className="text-lg font-bold uppercase tracking-tighter text-[#DFE104] whitespace-nowrap">
-            {group.myAnonymousName}
+            {membership.anonymousName}
           </p>
           <p className="text-[10px] uppercase text-[#3F3F46] mt-1">
             IN THIS GROUP
@@ -63,13 +84,13 @@ export default function MyGroup({ group }) {
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">GROUP TYPE</p>
           <p className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA]">
-            {group.type === 'open' ? 'OPEN GROUP' : 'MATCHED GROUP'}
+            OPEN GROUP
           </p>
         </div>
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">JOINED</p>
           <p className="text-xl font-bold uppercase text-[#FAFAFA]">
-            {formatDate(group.joinedAt)}
+            {formatDate(membership.joinedAt)}
           </p>
         </div>
       </div>
@@ -84,10 +105,11 @@ export default function MyGroup({ group }) {
         </p>
         <div className="flex gap-3 flex-wrap">
           <button
-            onClick={() => setShowLeaveConfirm(true)}
-            className="border border-[#3F3F46] px-4 py-2 text-xs uppercase tracking-tighter text-[#A1A1AA] hover:border-[#FAFAFA]/30 hover:text-[#FAFAFA] transition-all"
+            onClick={handleRequestNew}
+            disabled={isRequestingNewGroup}
+            className="border border-[#3F3F46] px-4 py-2 text-xs uppercase tracking-tighter text-[#A1A1AA] hover:border-[#FAFAFA]/30 hover:text-[#FAFAFA] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            REQUEST NEW GROUP
+            {isRequestingNewGroup ? 'FINDING GROUP...' : 'REQUEST NEW GROUP'}
           </button>
           <button
             onClick={() => setShowLeaveConfirm(true)}
@@ -97,6 +119,12 @@ export default function MyGroup({ group }) {
           </button>
         </div>
       </div>
+
+      {leaveError && (
+        <div className="mt-3 p-3 border border-red-900/30 bg-red-900/5">
+          <p className="text-xs text-red-400 uppercase tracking-wider">{leaveError}</p>
+        </div>
+      )}
 
       <AnimatePresence>
         {showLeaveConfirm && (
@@ -111,15 +139,16 @@ export default function MyGroup({ group }) {
                 ARE YOU SURE?
               </h3>
               <p className="text-xs text-[#A1A1AA] leading-relaxed mb-4">
-                Your anonymous name '{group.myAnonymousName}' will be retired. 
-                Your past weekly numbers are permanently removed from the group feed.
+                Your anonymous name '{membership.anonymousName}' will be retired.
+                Your past weekly numbers remain in the group's history.
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={handleLeave}
-                  className="border-2 border-red-900/50 text-red-400 px-4 py-2 text-xs uppercase tracking-tighter hover:bg-red-900/20 transition-all"
+                  disabled={isLeaving}
+                  className="border-2 border-red-900/50 text-red-400 px-4 py-2 text-xs uppercase tracking-tighter hover:bg-red-900/20 transition-all disabled:opacity-50"
                 >
-                  LEAVE GROUP
+                  {isLeaving ? 'LEAVING...' : 'LEAVE GROUP'}
                 </button>
                 <button
                   onClick={() => setShowLeaveConfirm(false)}

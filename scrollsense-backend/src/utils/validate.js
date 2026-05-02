@@ -1,7 +1,16 @@
-const VALID_INTENTIONS = ['boredom', 'stress', 'specific', 'entertainment', 'learning']
+const VALID_INTENTIONS = ['boredom', 'stress', 'specific', 'entertainment', 'learning', 'procrastination', 'social', 'habit', 'fomo', 'creative', 'break', 'curiosity']
 const VALID_PLATFORMS  = ['youtube', 'instagram', 'both']
 const VALID_OUTCOMES   = ['resisted', 'partial', 'gave_in']
 const VALID_TRIGGERS   = ['boredom', 'anxiety', 'habit', 'loneliness']
+
+const VALID_GOALS = [
+  "Read 2 books a month",
+  "Build a side project",
+  "Learn a new language",
+  "Exercise 4x a week",
+  "Sleep 8 hours a night",
+  "Reduce screen time"
+]
 
 function validateIntentionCategory(value) {
   return VALID_INTENTIONS.includes(value)
@@ -55,4 +64,5 @@ module.exports = {
   validateCravingBody,
   VALID_INTENTIONS,
   VALID_PLATFORMS,
+  VALID_GOALS,
 }

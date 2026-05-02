@@ -5,42 +5,36 @@ import {
 } from 'recharts';
 import { motion } from 'framer-motion';
 
-const MOCK_GROUP_TREND = [
-  { week: 'W1', avgImprovement: 0 },
-  { week: 'W2', avgImprovement: -5 },
-  { week: 'W3', avgImprovement: -8 },
-  { week: 'W4', avgImprovement: -12 },
-];
-
-export default function GroupFeed({ group, feed }) {
-  const submittedMembers = feed.filter(m => m.submitted);
-  const submittedCount = submittedMembers.length;
+export default function GroupFeed({ data }) {
+  const { currentWeek, group, groupTrend } = data || {};
   
-  const groupAvgImprovement = submittedCount > 0 
-    ? Math.round(submittedMembers.reduce((s, m) => s + m.improvementMinutes, 0) / submittedCount)
-    : 0;
+  if (!currentWeek || !group) return null;
 
-  const improving = submittedMembers.filter(m => m.improvementMinutes > 0).length;
+  const feed = currentWeek.submissions || [];
+  const submittedMembers = feed; // backend returns submissions only
+  const submittedCount = currentWeek.groupStats?.submittedCount || 0;
+  
+  const groupAvgImprovement = currentWeek.groupStats?.groupAverageDelta || 0;
 
-  const best = submittedMembers.reduce(
-    (a, b) => b.improvementMinutes > a.improvementMinutes ? b : a,
-    { improvementMinutes: 0 }
+  const improving = currentWeek.groupStats?.improvingCount || 0;
+
+  const best = feed.reduce(
+    (a, b) => b.deltaMinutes < a.deltaMinutes ? b : a,
+    { deltaMinutes: Infinity }
   );
-
-  const sortedFeed = [...feed].sort((a, b) => {
-    if (!a.submitted) return 1;
-    if (!b.submitted) return -1;
-    return b.improvementMinutes - a.improvementMinutes;
-  });
+  if (best.deltaMinutes === Infinity) best.deltaMinutes = 0;
 
   const maxImprovement = submittedCount > 0 
-    ? Math.max(...submittedMembers.map(m => Math.abs(m.improvementMinutes)))
+    ? Math.max(...feed.map(m => Math.abs(m.deltaMinutes)))
     : 0;
 
-  const lastWeek = MOCK_GROUP_TREND[MOCK_GROUP_TREND.length - 1];
-  const isGroupImproving = lastWeek.avgImprovement < MOCK_GROUP_TREND[0].avgImprovement;
-  const minDomain = Math.min(...MOCK_GROUP_TREND.map(d => d.avgImprovement)) - 10;
-  const maxDomain = Math.max(...MOCK_GROUP_TREND.map(d => d.avgImprovement)) + 10;
+  const lastWeek = groupTrend?.[groupTrend.length - 1] || { avgDelta: 0 };
+  const firstWeek = groupTrend?.[0] || { avgDelta: 0 };
+  const isGroupImproving = lastWeek.avgDelta < firstWeek.avgDelta;
+  
+  const trendValues = groupTrend?.map(d => d.avgDelta) || [0];
+  const minDomain = Math.min(...trendValues) - 10;
+  const maxDomain = Math.max(...trendValues) + 10;
 
   return (
     <motion.div
@@ -61,7 +55,7 @@ export default function GroupFeed({ group, feed }) {
         </div>
         <div className="border border-[#3F3F46] px-3 py-1">
           <p className="text-xs uppercase tracking-widest text-[#A1A1AA]">
-            {submittedCount} OF {feed.length} SUBMITTED
+            {submittedCount} OF {group.memberCount || feed.length} SUBMITTED
           </p>
         </div>
       </div>
@@ -69,9 +63,9 @@ export default function GroupFeed({ group, feed }) {
       <div className="grid grid-cols-3 gap-2 md:gap-4 mb-8">
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">GROUP AVERAGE</p>
-          {groupAvgImprovement > 0 ? (
+          {groupAvgImprovement < 0 ? (
             <p className="text-lg md:text-xl font-bold uppercase text-[#DFE104] whitespace-nowrap">
-              -{groupAvgImprovement} MIN
+              {groupAvgImprovement} MIN
             </p>
           ) : (
             <p className="text-lg md:text-xl font-bold uppercase text-[#A1A1AA] whitespace-nowrap">
@@ -83,21 +77,21 @@ export default function GroupFeed({ group, feed }) {
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">IMPROVING</p>
           <p className="text-lg md:text-xl font-bold uppercase text-[#FAFAFA] whitespace-nowrap">
-            {improving} OF {submittedCount}
+            {improving} OF {group.memberCount}
           </p>
           <p className="text-[10px] uppercase text-[#3F3F46] mt-1">MEMBERS THIS WEEK</p>
         </div>
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">BEST THIS WEEK</p>
-          {best.improvementMinutes > 0 ? (
+          {best.deltaMinutes < 0 ? (
             <p className="text-lg md:text-xl font-bold uppercase text-[#DFE104] whitespace-nowrap">
-              -{best.improvementMinutes} MIN
+              {best.deltaMinutes} MIN
             </p>
           ) : (
             <p className="text-lg md:text-xl font-bold text-[#3F3F46]">--</p>
           )}
           <p className="text-[10px] uppercase text-[#3F3F46] mt-1">
-            {best.isMe ? "THAT'S YOU 🎯" : "GROUP MEMBER"}
+            {best.isYou ? "THAT'S YOU 🎯" : "GROUP MEMBER"}
           </p>
         </div>
       </div>
@@ -107,60 +101,52 @@ export default function GroupFeed({ group, feed }) {
           INDIVIDUAL NUMBERS
         </p>
 
-        {sortedFeed.map((member, idx) => {
-          const barWidth = maxImprovement > 0 && member.submitted
-            ? (Math.abs(member.improvementMinutes) / maxImprovement) * 100
+        {feed.map((member, idx) => {
+          const barWidth = maxImprovement > 0
+            ? (Math.abs(member.deltaMinutes) / maxImprovement) * 100
             : 0;
             
           return (
             <div 
               key={idx} 
-              className={`flex items-center gap-4 py-4 border-b border-[#3F3F46] last:border-0 ${member.isMe ? 'bg-[#DFE104]/5 border-[#DFE104]/20 px-4 -mx-4' : ''}`}
+              className={`flex items-center gap-4 py-4 border-b border-[#3F3F46] last:border-0 ${member.isYou ? 'bg-[#DFE104]/5 border-[#DFE104]/20 px-4 -mx-4' : ''}`}
             >
               <div className="w-[120px] shrink-0">
-                <p className={`text-sm font-bold uppercase tracking-tighter ${member.isMe ? 'text-[#DFE104]' : 'text-[#FAFAFA]'}`}>
+                <p className={`text-sm font-bold uppercase tracking-tighter ${member.isYou ? 'text-[#DFE104]' : 'text-[#FAFAFA]'}`}>
                   {member.anonymousName}
-                  {member.isMe && <span className="text-[10px] text-[#DFE104] ml-2">(YOU)</span>}
+                  {member.isYou && <span className="text-[10px] text-[#DFE104] ml-2">(YOU)</span>}
                 </p>
               </div>
 
               <div className="hidden md:flex flex-1 mx-4 h-[4px] bg-[#27272A]">
-                {member.submitted && member.improvementMinutes !== 0 && (
+                {member.deltaMinutes !== 0 && (
                   <div 
-                    className={`h-[4px] transition-all duration-700 ${member.improvementMinutes > 0 ? 'bg-[#DFE104]' : 'bg-[#3F3F46]'}`}
+                    className={`h-[4px] transition-all duration-700 ${member.deltaMinutes < 0 ? 'bg-[#DFE104]' : 'bg-[#3F3F46]'}`}
                     style={{ width: `${barWidth}%` }}
                   ></div>
                 )}
               </div>
 
               <div className="flex-1 md:flex-none text-right">
-                {!member.submitted ? (
-                  <div className="inline-block border border-[#27272A] px-3 py-1">
-                    <span className="text-xs uppercase text-[#3F3F46]">PENDING</span>
+                {member.deltaMinutes < 0 && (
+                  <div>
+                    <p className="text-sm font-bold uppercase text-[#DFE104]">
+                      {member.deltaMinutes} MIN
+                    </p>
+                    <p className="text-[10px] text-[#DFE104] mt-0.5">
+                      {member.percentChange}%
+                    </p>
                   </div>
-                ) : (
-                  <>
-                    {member.improvementMinutes > 0 && (
-                      <div>
-                        <p className="text-sm font-bold uppercase text-[#DFE104]">
-                          -{member.improvementMinutes} MIN
-                        </p>
-                        <p className="text-[10px] text-[#DFE104] mt-0.5">
-                          {member.improvementPct}%
-                        </p>
-                      </div>
-                    )}
-                    {member.improvementMinutes < 0 && (
-                      <p className="text-sm font-bold uppercase text-[#A1A1AA]">
-                        +{Math.abs(member.improvementMinutes)} MIN
-                      </p>
-                    )}
-                    {member.improvementMinutes === 0 && (
-                      <p className="text-sm uppercase text-[#3F3F46]">
-                        NO CHANGE
-                      </p>
-                    )}
-                  </>
+                )}
+                {member.deltaMinutes > 0 && (
+                  <p className="text-sm font-bold uppercase text-[#A1A1AA]">
+                    +{Math.abs(member.deltaMinutes)} MIN
+                  </p>
+                )}
+                {member.deltaMinutes === 0 && (
+                  <p className="text-sm uppercase text-[#3F3F46]">
+                    NO CHANGE
+                  </p>
                 )}
               </div>
             </div>
@@ -175,9 +161,9 @@ export default function GroupFeed({ group, feed }) {
 
         <div className="h-[120px] md:h-[140px] w-full mt-4">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-            <LineChart data={MOCK_GROUP_TREND} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+            <LineChart data={groupTrend} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#27272A" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="week" tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="weekLabel" tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis 
                 tickFormatter={(v) => v + 'm'} 
                 domain={[minDomain, maxDomain]} 
@@ -194,7 +180,7 @@ export default function GroupFeed({ group, feed }) {
               />
               <Line 
                 type="monotone" 
-                dataKey="avgImprovement" 
+                dataKey="avgDelta" 
                 stroke="#DFE104" 
                 strokeWidth={2}
                 dot={{ fill: '#DFE104', r: 3, strokeWidth: 0 }}

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScrollSense</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 280px;
+      background: #09090B;
+      color: #FAFAFA;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      padding: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #27272A;
+      padding-bottom: 12px;
+    }
+    .logo-dot {
+      width: 8px; height: 8px;
+      background: #DFE104;
+      flex-shrink: 0;
+    }
+    .logo-text {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #FAFAFA;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .status-dot.connected    { background: #DFE104; }
+    .status-dot.disconnected { background: #52525B; }
+
+    .status-label {
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #A1A1AA;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .stat-box {
+      border: 1px solid #27272A;
+      padding: 8px;
+    }
+    .stat-label {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #52525B;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #FAFAFA;
+    }
+    .stat-value.yellow { color: #DFE104; }
+
+    .flush-btn {
+      width: 100%;
+      background: #DFE104;
+      color: #09090B;
+      border: none;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 8px;
+      cursor: pointer;
+      margin-bottom: 8px;
+    }
+    .flush-btn:hover   { background: #F5F500; }
+    .flush-btn:disabled { background: #27272A; color: #52525B; cursor: default; }
+
+    .hint {
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #3F3F46;
+      text-align: center;
+      line-height: 1.6;
+    }
+    .hint a {
+      color: #DFE104;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <span class="logo-text">ScrollSense</span>
+  </div>
+
+  <div class="status-row">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-label" id="statusLabel">Checking…</span>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value yellow" id="pendingCount">—</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Reports</div>
+      <div class="stat-value" id="flushStatus">—</div>
+    </div>
+  </div>
+
+  <button class="flush-btn" id="flushBtn" disabled>FLUSH NOW</button>
+
+  <p class="hint" id="hintText">Open ScrollSense to link</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

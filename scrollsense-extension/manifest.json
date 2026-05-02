@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "ScrollSense Watch Tracker",
+  "version": "1.0.0",
+  "description": "Tracks your actual YouTube watch time so ScrollSense shows real minutes instead of estimated ones.",
+
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content-youtube.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-app.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ScrollSense Watch Tracker"
+  }
+}

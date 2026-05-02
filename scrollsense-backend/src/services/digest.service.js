@@ -35,16 +35,18 @@ async function shouldGenerateCheckin(userId) {
   });
 
   if (newSessions >= 3) {
-    return { should: true, reason: 'sessions', sessionsLogged: sessionCount };
+    // Return newSessions (not total sessionCount) so the progress UI
+    // correctly shows sessions logged since last check-in, not all-time total.
+    return { should: true, reason: 'sessions', sessionsLogged: newSessions };
   }
 
-  // Check if 7+ days since last digest
+  // Check if 3+ days since last digest (reduced from 7 — prevents early-user churn)
   const daysSince = (Date.now() - lastDigest.digestSentAt.getTime()) / 86400000;
-  if (daysSince >= 7) {
-    return { should: true, reason: 'weekly', sessionsLogged: sessionCount };
+  if (daysSince >= 3) {
+    return { should: true, reason: 'days', sessionsLogged: newSessions };
   }
 
-  return { should: false, reason: null, sessionsLogged: sessionCount };
+  return { should: false, reason: null, sessionsLogged: newSessions };
 }
 
 /**

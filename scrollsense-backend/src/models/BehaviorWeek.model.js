@@ -12,6 +12,7 @@ const behaviorWeekSchema = new Schema({
   dominantCategory:     { type: String, default: null },
   triggerPatterns:      { type: [String], default: [] },
   averageMoodRating:    { type: Number, default: null },
+  youtubeVideosClassified:{ type: Number, default: 0 },
   sessionsCount:        { type: Number, default: 0 },
   digestSent:           { type: Boolean, default: false },
   digestSentAt:         { type: Date, default: null },

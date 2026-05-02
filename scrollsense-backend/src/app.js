@@ -16,7 +16,17 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: (origin, callback) => {
+    // Allow frontend URL, browser extensions, and requests with no origin
+    if (!origin || 
+        origin === process.env.FRONTEND_URL || 
+        origin.startsWith('chrome-extension://') || 
+        origin.startsWith('moz-extension://')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -53,6 +63,18 @@ app.use('/api/youtube',  authMiddleware, youtubeRouter);
 app.use('/api/insights', authMiddleware, insightsRouter);
 app.use('/api/digest',   authMiddleware, digestRouter);
 app.use('/api/daily',    authMiddleware, dailyRouter);
+
+const patternsRouter = require('./routes/patterns.routes');
+// Instagram upload payloads (aggregated from 3000-4000 entries) can reach ~25KB.
+// The global 10kb limit would reject them. Route-specific override keeps other
+// routes protected while allowing larger Instagram payloads.
+app.use('/api/patterns', authMiddleware, express.json({ limit: '500kb' }), patternsRouter);
+
+const progressRouter = require('./routes/progress.routes');
+app.use('/api/progress', authMiddleware, progressRouter);
+
+const communityRouter = require('./routes/community.routes');
+app.use('/api/community', authMiddleware, communityRouter);
 
 app.get('/health', (req, res) => res.json({ 
   status: 'ok', 

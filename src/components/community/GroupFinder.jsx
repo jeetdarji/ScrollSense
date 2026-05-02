@@ -1,97 +1,142 @@
 import React, { useState } from 'react';
-import { Users, Search, TrendingDown, CheckCircle, Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee } from 'lucide-react';
+import { Users, Search, TrendingDown, CheckCircle, Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const iconMap = {
-  Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee
+  moon: Moon,
+  sun: Sun,
+  zap: Zap,
+  meh: Meh,
+  timer: Timer,
+  target: Target,
+  calendar: Calendar,
+  coffee: Coffee,
 };
 
-export default function GroupFinder({ openGroups, anonymousNames }) {
-  const [joinLoading, setJoinLoading] = useState(null);
+function getIcon(iconName) {
+  if (!iconName) return Meh;
+  // Try exact match, then capitalized, then fallback
+  return iconMap[iconName] || iconMap[iconName.toLowerCase()] || Meh;
+}
+
+export default function GroupFinder({
+  groups = [],
+  totalMembers = 0,
+  recommendations = [],
+  isLoadingGroups = false,
+  onJoinGroup,
+  isJoining = false,
+}) {
+  const [joiningId, setJoiningId] = useState(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [joined, setJoined] = useState(false);
   const [assignedName, setAssignedName] = useState('');
+  const [joinError, setJoinError] = useState(null);
 
-  const filteredGroups = openGroups.filter(g =>
-    g.displayName.toLowerCase().includes(searchFilter.toLowerCase()) ||
+  const filteredGroups = groups.filter(g =>
+    g.name.toLowerCase().includes(searchFilter.toLowerCase()) ||
     g.description.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
-  const totalMembers = openGroups.reduce((s, g) => s + g.memberCount, 0);
+  const handleJoin = async (groupId) => {
+    setJoiningId(groupId);
+    setJoinError(null);
 
-  const handleNotifyRequest = () => {
-    localStorage.setItem('scrollsense_wants_matched_group', 'true');
-    alert('You will be notified when a matched group is ready.');
-  };
-
-  const handleJoin = (group) => {
-    setJoinLoading(group.id);
-    
-    setTimeout(() => {
-      const name = anonymousNames[Math.floor(Math.random() * anonymousNames.length)];
-      const myGroup = {
-        ...group,
-        myAnonymousName: name,
-        joinedAt: new Date().toISOString(),
-        weekNumber: 1,
-        memberCount: group.memberCount + 1,
-      };
-      
-      localStorage.setItem('scrollsense_my_group', JSON.stringify(myGroup));
-      setAssignedName(name);
-      setJoinLoading(null);
+    try {
+      const result = await onJoinGroup(groupId);
+      setAssignedName(result?.membership?.anonymousName || 'YOUR NAME');
       setJoined(true);
-      
-      // Delay reload slightly to let user see flash optionally, or just reload
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    }, 1000);
+      // The query invalidation in useCommunityData will flip hasMembership to true,
+      // which unmounts GroupFinder. The success banner is brief but visible
+      // due to the AnimatePresence exit animation.
+    } catch (err) {
+      const msg = err?.response?.data?.error || 'Failed to join group. Try again.';
+      setJoinError(msg);
+      setJoiningId(null);
+    }
   };
 
   return (
     <div className="space-y-8">
-      {/* SECTION 1: MATCHED GROUP STATUS */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        viewport={{ once: true }}
-        className="border-2 border-[#3F3F46] p-5 mb-8 flex items-center justify-between flex-wrap gap-4 bg-[#09090B]"
-      >
-        <div className="flex-1 min-w-[200px]">
-          <p className="text-xs uppercase tracking-widest text-[#A1A1AA] mb-1">
-            PATTERN-MATCHED GROUPS
-          </p>
-          <h2 className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">
-            GROUPS MATCHED TO YOUR TRIGGER PATTERN
-          </h2>
-          <p className="mt-2 text-xs text-[#3F3F46] leading-relaxed max-w-sm">
-            When enough users with your trigger pattern exist, ScrollSense will automatically form a small group matched specifically to your patterns.
-          </p>
-        </div>
 
-        <div className="border border-[#27272A] p-4 min-w-[180px] w-full md:w-auto bg-[#09090B]">
-          <Users size={14} color="#3F3F46" className="mb-2" />
-          <p className="text-[10px] uppercase tracking-widest text-[#3F3F46] mb-1">
-            MATCHED GROUP
-          </p>
-          <p className="text-sm font-bold uppercase tracking-tighter text-[#3F3F46]">
-            FORMING SOON
-          </p>
-          <p className="text-[10px] text-[#27272A] uppercase mt-1">
-            Join an open group now while we find your pattern match.
-          </p>
-          <button 
-            onClick={handleNotifyRequest}
-            className="mt-3 w-full border border-[#3F3F46] px-4 py-2 text-center cursor-pointer hover:border-[#FAFAFA]/20 transition-all text-[10px] uppercase tracking-widest text-[#3F3F46]"
-          >
-            NOTIFY ME WHEN READY
-          </button>
-        </div>
-      </motion.div>
+      {/* SECTION 1: PERSONALIZED RECOMMENDATIONS */}
+      {recommendations.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          viewport={{ once: true }}
+          className="border-2 border-[#DFE104]/20 p-6 md:p-8 mb-4 bg-[#09090B]"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <Sparkles size={16} color="#DFE104" />
+            <div>
+              <p className="text-xs uppercase tracking-widest text-[#DFE104] mb-0.5">
+                RECOMMENDED FOR YOU
+              </p>
+              <h2 className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA]">
+                BASED ON YOUR SCROLLING PATTERNS
+              </h2>
+            </div>
+          </div>
 
-      {/* SECTION 2: OPEN GROUPS BROWSER */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recommendations.map((rec, idx) => {
+              const IconComp = getIcon(rec.icon);
+
+              return (
+                <div
+                  key={rec.groupId}
+                  className="border border-[#DFE104]/20 p-5 bg-[#DFE104]/[0.02] hover:bg-[#DFE104]/[0.05] transition-colors"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 border border-[#DFE104]/30 flex items-center justify-center">
+                      <IconComp size={14} color="#DFE104" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-tighter text-[#FAFAFA] leading-tight">
+                        {rec.groupName}
+                      </p>
+                      <p className="text-[10px] uppercase text-[#3F3F46]">
+                        {rec.memberCount}/{rec.maxMembers} MEMBERS
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-[#A1A1AA] leading-relaxed mb-3">
+                    {rec.reason}
+                  </p>
+
+                  <div className="flex items-center gap-1 mb-3 flex-wrap">
+                    {rec.matchedSignals?.map(signal => (
+                      <span
+                        key={signal}
+                        className="text-[9px] uppercase tracking-widest text-[#DFE104]/60 border border-[#DFE104]/15 px-1.5 py-0.5"
+                      >
+                        {signal.replace('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+
+                  <button
+                    disabled={joiningId === rec.groupId || isJoining}
+                    onClick={() => handleJoin(rec.groupId)}
+                    className={`w-full h-10 text-xs uppercase tracking-tighter transition-all ${
+                      joiningId === rec.groupId
+                        ? 'bg-[#27272A] text-[#3F3F46] cursor-not-allowed'
+                        : 'bg-[#DFE104] text-black font-bold hover:scale-105'
+                    }`}
+                  >
+                    {joiningId === rec.groupId ? 'JOINING...' : `#${idx + 1} MATCH — JOIN`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* SECTION 2: ALL OPEN GROUPS */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -123,20 +168,43 @@ export default function GroupFinder({ openGroups, anonymousNames }) {
           />
         </div>
 
-        {filteredGroups.length === 0 ? (
+        {joinError && (
+          <div className="mb-4 p-3 border border-red-900/30 bg-red-900/5 text-center">
+            <p className="text-xs text-red-400 uppercase tracking-wider">{joinError}</p>
+          </div>
+        )}
+
+        {isLoadingGroups && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="border-2 border-[#3F3F46] p-6 animate-pulse bg-[#09090B]">
+                <div className="h-4 w-32 bg-[#27272A] mb-3" />
+                <div className="h-3 w-full bg-[#27272A] mb-2" />
+                <div className="h-3 w-3/4 bg-[#27272A] mb-4" />
+                <div className="h-10 w-full bg-[#27272A]" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isLoadingGroups && filteredGroups.length === 0 && (
           <div className="text-center py-12">
             <Search size={20} color="#3F3F46" className="mx-auto mb-3" />
             <p className="text-sm uppercase tracking-tighter text-[#3F3F46]">
-              NO GROUPS MATCH '{searchFilter}'
+              {searchFilter ? `NO GROUPS MATCH '${searchFilter}'` : 'NO GROUPS AVAILABLE'}
             </p>
-            <p className="text-xs text-[#27272A] mt-1">
-              Try a different search term.
-            </p>
+            {searchFilter && (
+              <p className="text-xs text-[#27272A] mt-1">
+                Try a different search term.
+              </p>
+            )}
           </div>
-        ) : (
+        )}
+
+        {!isLoadingGroups && filteredGroups.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredGroups.map(group => {
-              const IconComp = iconMap[group.icon] || Meh;
+              const IconComp = getIcon(group.icon);
               const isImproving = group.weeklyAvgImprovement < 0;
 
               return (
@@ -152,16 +220,21 @@ export default function GroupFinder({ openGroups, anonymousNames }) {
                           <IconComp size={16} color="#DFE104" />
                         </div>
                         <h3 className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA] leading-tight">
-                          {group.displayName}
+                          {group.name}
                         </h3>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <div className="border border-[#3F3F46] px-2 py-0.5 text-[10px] uppercase text-[#A1A1AA]">
-                          {group.memberCount} MEMBERS
+                          {group.memberCount}/{group.maxMembers}
                         </div>
-                        {group.type === 'open' && (
+                        {group.isJoinable && (
                           <div className="border border-[#DFE104]/30 px-2 py-0.5 text-[10px] uppercase text-[#DFE104]">
                             OPEN
+                          </div>
+                        )}
+                        {!group.isJoinable && (
+                          <div className="border border-[#3F3F46] px-2 py-0.5 text-[10px] uppercase text-[#3F3F46]">
+                            FULL
                           </div>
                         )}
                       </div>
@@ -182,24 +255,31 @@ export default function GroupFinder({ openGroups, anonymousNames }) {
                           </span>
                         </div>
                         <div className={`text-sm font-bold uppercase tracking-tighter ${isImproving ? 'text-[#DFE104]' : 'text-[#A1A1AA]'}`}>
-                          {Math.abs(group.weeklyAvgImprovement)} MIN {isImproving ? 'LESS' : 'MORE'}
+                          {group.weeklyAvgImprovement === 0
+                            ? 'NO DATA'
+                            : `${Math.abs(group.weeklyAvgImprovement)} MIN ${isImproving ? 'LESS' : 'MORE'}`
+                          }
                         </div>
                       </div>
-                      <p className="mt-1 text-[10px] uppercase text-[#27272A]">
-                        Group average improvement this week
-                      </p>
                     </div>
 
                     <button
-                      disabled={joinLoading === group.id}
-                      onClick={() => handleJoin(group)}
+                      disabled={!group.isJoinable || joiningId === group.id || isJoining}
+                      onClick={() => handleJoin(group.id)}
                       className={`mt-4 w-full h-12 text-sm uppercase tracking-tighter rounded-none transition-all ${
-                        joinLoading === group.id
+                        !group.isJoinable
                           ? 'bg-[#27272A] text-[#3F3F46] cursor-not-allowed'
-                          : 'bg-[#DFE104] text-black font-bold hover:scale-105'
+                          : joiningId === group.id
+                            ? 'bg-[#27272A] text-[#3F3F46] cursor-not-allowed'
+                            : 'bg-[#DFE104] text-black font-bold hover:scale-105'
                       }`}
                     >
-                      {joinLoading === group.id ? 'JOINING...' : 'JOIN GROUP'}
+                      {!group.isJoinable
+                        ? 'GROUP FULL'
+                        : joiningId === group.id
+                          ? 'JOINING...'
+                          : 'JOIN GROUP'
+                      }
                     </button>
                   </div>
                 </motion.div>
@@ -225,7 +305,7 @@ export default function GroupFinder({ openGroups, anonymousNames }) {
               </p>
             </div>
             <button
-              onClick={() => { setJoined(false); window.location.reload(); }}
+              onClick={() => setJoined(false)}
               className="border border-black/30 px-4 py-1.5 text-xs uppercase font-bold text-black hover:bg-black/10 transition-colors"
             >
               CONTINUE

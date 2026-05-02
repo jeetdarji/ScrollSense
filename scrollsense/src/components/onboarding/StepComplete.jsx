@@ -138,7 +138,14 @@ export default function StepComplete({ data }) {
         </p>
 
         <button
-          onClick={() => navigate('/dashboard')}
+          onClick={async () => {
+            try {
+              await api.post('/youtube/connect');
+            } catch (err) {
+              console.error('Failed to connect YouTube during onboarding:', err);
+            }
+            navigate('/dashboard');
+          }}
           className="bg-[#DFE104] text-black font-bold h-14 px-8 rounded-none uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-[#DFE104] focus:ring-offset-2 focus:ring-offset-[#09090B] shadow-lg"
         >
           CONNECT YOUTUBE — START ANALYSIS

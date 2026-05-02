@@ -4,19 +4,38 @@ const { validateEnv } = require('./config/env');
 // Validate env vars before running anything else
 validateEnv();
 
+const http = require('http');
 const connectDB = require('./config/db');
 const passport = require('passport');
 require('./config/passport')(passport);
 
 const app = require('./app');
+const { initSocket } = require('./config/socket');
+const { registerCommunityHandlers } = require('./sockets/community.socket');
+
+// Initialize scheduler for automated background updates
+require('./jobs/scheduler');
+// Register queue processors so workers are active at startup
+require('./jobs/classification.job');
+require('./jobs/digest.job');
 
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
-  
-  app.listen(PORT, () => {
+
+  // Create raw HTTP server from Express app — required for Socket.io
+  const server = http.createServer(app);
+
+  // Initialize Socket.io on the HTTP server
+  const io = initSocket(server);
+
+  // Register real-time community event handlers
+  registerCommunityHandlers(io);
+
+  server.listen(PORT, () => {
     console.log(`ScrollSense API running on port ${PORT}`);
+    console.log(`[socket] WebSocket server ready on port ${PORT}`);
   });
 };
 

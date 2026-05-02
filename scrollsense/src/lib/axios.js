@@ -62,12 +62,22 @@ api.interceptors.response.use(
         const { accessToken, user } = res.data
         useAuthStore.getState().setAccessToken(accessToken)
         useAuthStore.getState().setUser(user)
+        // Keep extension credentials in sync with the refreshed token
+        try {
+          const payload = JSON.stringify({ token: accessToken, apiUrl: import.meta.env.VITE_API_URL })
+          localStorage.setItem('ss_ext_credentials', payload)
+          window.dispatchEvent(new CustomEvent('ss_credentials_updated'))
+        } catch (_) {}
         processQueue(null, accessToken)
         originalRequest.headers.Authorization = `Bearer ${accessToken}`
         return api(originalRequest)
       } catch (refreshError) {
         processQueue(refreshError, null)
         useAuthStore.getState().clearUser()
+        try {
+          localStorage.removeItem('ss_ext_credentials')
+          window.dispatchEvent(new CustomEvent('ss_credentials_cleared'))
+        } catch (_) {}
         window.location.href = '/login'
         return Promise.reject(refreshError)
       } finally {

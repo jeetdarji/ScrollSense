@@ -16,6 +16,7 @@ const SettingsPage  = lazy(() => import('./pages/SettingsPage.jsx'))
 const LoginPage     = lazy(() => import('./pages/LoginPage.jsx'))
 const SignupPage    = lazy(() => import('./pages/SignupPage.jsx'))
 const NotFoundPage  = lazy(() => import('./pages/NotFoundPage.jsx'))
+const ExtensionPage = lazy(() => import('./pages/ExtensionPage.jsx'))
 
 function PageLoader() {
   return (
@@ -39,6 +40,35 @@ function PageLoader() {
   )
 }
 
+/**
+ * Extension credential bridge helpers.
+ * Write the current access token + API URL to localStorage so the
+ * ScrollSense browser extension can authenticate its watch-time reports.
+ * The extension's content script reads 'ss_ext_credentials' from this domain's
+ * localStorage and forwards it to the extension background service worker.
+ */
+function _syncExtCredentials(token) {
+  try {
+    const payload = JSON.stringify({
+      token,
+      apiUrl: import.meta.env.VITE_API_URL,
+    });
+    localStorage.setItem('ss_ext_credentials', payload);
+    // Dispatch custom event so the content script on this same tab picks it up
+    // (window.addEventListener('storage') only fires in OTHER tabs, not this one)
+    window.dispatchEvent(new CustomEvent('ss_credentials_updated'));
+  } catch (_) {
+    // localStorage may be unavailable in private browsing — silent failure is fine
+  }
+}
+
+function _clearExtCredentials() {
+  try {
+    localStorage.removeItem('ss_ext_credentials');
+    window.dispatchEvent(new CustomEvent('ss_credentials_cleared'));
+  } catch (_) {}
+}
+
 function AppRoutes() {
   const { user, setUser, setAccessToken, clearUser, setLoading, isAuthenticated } = useAuthStore()
 
@@ -52,13 +82,19 @@ function AppRoutes() {
         const { accessToken, user } = res.data
         setAccessToken(accessToken)
         setUser(user)
+        // Bridge credentials to the browser extension (if installed).
+        // The extension's content script reads this key from localStorage
+        // to authenticate its watch-time reports to the backend.
+        _syncExtCredentials(accessToken)
       } catch (err) {
         // Refresh failed — user not logged in or cookie expired
         clearUser()
+        _clearExtCredentials()
       }
     }
     restoreSession()
   }, [])
+
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
@@ -92,6 +128,7 @@ function AppRoutes() {
         <ProtectedRoute><SettingsPage /></ProtectedRoute>
       } />
       
+      <Route path="/extension" element={<ExtensionPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   )

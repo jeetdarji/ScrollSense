@@ -25,36 +25,38 @@ const redisConfig = isTLS
       redis: redisUrl,
     }
 
-const classificationQueue = new Bull(
-  'content-classification',
-  redisConfig,
-  {
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 5000,
-      },
-      removeOnComplete: 50,
-      removeOnFail: 20,
-      lockDuration: 300000,
-      lockRenewTime: 60000,
+// Bull v4 accepts new Bull(name, opts) — passing a third argument silently drops it.
+// Merge redisConfig and queue options into a single object.
+const classificationQueue = new Bull('content-classification', {
+  ...redisConfig,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: 'exponential',
+      delay: 5000,
     },
-  }
-);
+    removeOnComplete: 50,
+    removeOnFail: 20,
+  },
+  settings: {
+    // lockDuration/lockRenewTime are queue-level settings, not per-job options
+    // Classification with 15 chunks × 8s delay + Gemini API calls can take 3-5 min.
+    // 6-minute lock with 2-minute renewal prevents "Missing lock" errors and
+    // the resulting double-run that corrupts BehaviorWeek data.
+    lockDuration: 360000,   // 6 minutes
+    lockRenewTime: 120000,  // renew every 2 minutes
+  },
+});
 
-const digestQueue = new Bull(
-  'digest-generation',
-  redisConfig,
-  {
-    defaultJobOptions: {
-      attempts: 2,
-      backoff: { type: 'fixed', delay: 10000 },
-      removeOnComplete: 100,
-      removeOnFail: 50,
-    },
-  }
-);
+const digestQueue = new Bull('digest-generation', {
+  ...redisConfig,
+  defaultJobOptions: {
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 10000 },
+    removeOnComplete: 100,
+    removeOnFail: 50,
+  },
+});
 
 // Graceful error handling — prevent unhandled rejections from crashing server
 const handleRedisError = (queueName) => (err) => {

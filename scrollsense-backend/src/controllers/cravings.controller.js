@@ -13,7 +13,7 @@ const logCraving = async (req, res) => {
     userId: req.user._id,
     cravingCategory: trigger,
     outcome,
-    timestamp: new Date(timestamp) || new Date(),
+    timestamp: timestamp ? new Date(timestamp) : new Date(),
   })
 
   res.status(201).json({ message: 'Craving logged' })

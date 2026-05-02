@@ -1,15 +1,39 @@
 import React, { useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useCommunityData } from '../../hooks/useCommunityData';
+import api from '../../lib/axios';
 
-export default function MyGroup({ group }) {
+export default function MyGroup({ data, onlineMembers = [] }) {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [showRequestConfirm, setShowRequestConfirm] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
+  const { leaveGroup } = useCommunityData();
 
-  const handleLeave = () => {
-    localStorage.removeItem('scrollsense_my_group');
-    localStorage.removeItem('scrollsense_weekly_sub');
-    localStorage.removeItem('scrollsense_group_feed');
-    window.location.reload();
+  const { group, membership } = data || {};
+  const onlineCount = onlineMembers.length;
+
+  const handleLeave = async () => {
+    try {
+      await leaveGroup();
+      window.location.reload();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to leave group');
+    }
+  };
+
+  const handleRequestNewGroup = async () => {
+    try {
+      setIsRequesting(true);
+      await api.post('/community/request-new-group');
+      window.location.reload();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to request new group');
+    } finally {
+      setIsRequesting(false);
+    }
   };
 
   const formatDate = (isoString) => {
@@ -17,6 +41,8 @@ export default function MyGroup({ group }) {
     const d = new Date(isoString);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
   };
+
+  if (!group || !membership) return null;
 
   return (
     <motion.div
@@ -32,12 +58,12 @@ export default function MyGroup({ group }) {
             YOUR GROUP
           </p>
           <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-tighter text-[#FAFAFA] leading-[0.9]">
-            {group.displayName}
+            {group.name}
           </h1>
           <div className="mt-2 border border-[#3F3F46] px-3 py-1 inline-flex items-center gap-2">
             <Calendar size={11} color="#A1A1AA" />
             <span className="text-[10px] uppercase tracking-widest text-[#A1A1AA]">
-              WEEK {group.weekNumber} OF MEMBERSHIP
+              WEEK {membership.weekOfMembership} OF MEMBERSHIP
             </span>
           </div>
         </div>
@@ -47,7 +73,7 @@ export default function MyGroup({ group }) {
             YOU ARE
           </p>
           <p className="text-lg font-bold uppercase tracking-tighter text-[#DFE104] whitespace-nowrap">
-            {group.myAnonymousName}
+            {membership.anonymousName}
           </p>
           <p className="text-[10px] uppercase text-[#3F3F46] mt-1">
             IN THIS GROUP
@@ -58,18 +84,26 @@ export default function MyGroup({ group }) {
       <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-[#3F3F46]">
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">MEMBERS</p>
-          <p className="text-xl font-bold uppercase text-[#FAFAFA]">{group.memberCount}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xl font-bold uppercase text-[#FAFAFA]">{group.memberCount}</p>
+            {onlineCount > 0 && (
+              <span className="flex items-center gap-1 border border-[#27272A] px-1.5 py-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                <span className="text-[9px] uppercase text-[#3F3F46]">{onlineCount}</span>
+              </span>
+            )}
+          </div>
         </div>
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">GROUP TYPE</p>
           <p className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA]">
-            {group.type === 'open' ? 'OPEN GROUP' : 'MATCHED GROUP'}
+            {group.isOpen ? 'OPEN GROUP' : 'MATCHED GROUP'}
           </p>
         </div>
         <div>
           <p className="text-[10px] uppercase text-[#A1A1AA] mb-1">JOINED</p>
           <p className="text-xl font-bold uppercase text-[#FAFAFA]">
-            {formatDate(group.joinedAt)}
+            {formatDate(membership.joinedAt)}
           </p>
         </div>
       </div>
@@ -84,13 +118,13 @@ export default function MyGroup({ group }) {
         </p>
         <div className="flex gap-3 flex-wrap">
           <button
-            onClick={() => setShowLeaveConfirm(true)}
+            onClick={() => { setShowRequestConfirm(true); setShowLeaveConfirm(false); }}
             className="border border-[#3F3F46] px-4 py-2 text-xs uppercase tracking-tighter text-[#A1A1AA] hover:border-[#FAFAFA]/30 hover:text-[#FAFAFA] transition-all"
           >
             REQUEST NEW GROUP
           </button>
           <button
-            onClick={() => setShowLeaveConfirm(true)}
+            onClick={() => { setShowLeaveConfirm(true); setShowRequestConfirm(false); }}
             className="border border-[#3F3F46] px-4 py-2 text-xs uppercase tracking-tighter text-[#3F3F46] hover:border-red-900/50 hover:text-red-400 transition-all"
           >
             LEAVE GROUP
@@ -111,7 +145,7 @@ export default function MyGroup({ group }) {
                 ARE YOU SURE?
               </h3>
               <p className="text-xs text-[#A1A1AA] leading-relaxed mb-4">
-                Your anonymous name '{group.myAnonymousName}' will be retired. 
+                Your anonymous name '{membership.anonymousName}' will be retired. 
                 Your past weekly numbers are permanently removed from the group feed.
               </p>
               <div className="flex gap-3">
@@ -123,6 +157,42 @@ export default function MyGroup({ group }) {
                 </button>
                 <button
                   onClick={() => setShowLeaveConfirm(false)}
+                  className="text-xs uppercase text-[#3F3F46] hover:text-[#A1A1AA] cursor-pointer px-4 py-2 transition-colors"
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showRequestConfirm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-[#27272A]/40 border border-[#DFE104]/20 p-4 mt-4">
+              <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] mb-2">
+                SWITCH TO A BETTER-MATCHED GROUP?
+              </h3>
+              <p className="text-xs text-[#A1A1AA] leading-relaxed mb-4">
+                You'll leave this group and get fresh recommendations based on your behavior data.
+                Your anonymous name '{membership.anonymousName}' will be retired.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleRequestNewGroup}
+                  disabled={isRequesting}
+                  className="border-2 border-[#DFE104]/50 text-[#DFE104] px-4 py-2 text-xs uppercase tracking-tighter hover:bg-[#DFE104]/10 transition-all disabled:opacity-40"
+                >
+                  {isRequesting ? 'SWITCHING...' : 'FIND NEW GROUP'}
+                </button>
+                <button
+                  onClick={() => setShowRequestConfirm(false)}
                   className="text-xs uppercase text-[#3F3F46] hover:text-[#A1A1AA] cursor-pointer px-4 py-2 transition-colors"
                 >
                   CANCEL

@@ -3,8 +3,23 @@ import TriggerPatternDetector from '../components/patterns/TriggerPatternDetecto
 import EchoChamberScore from '../components/patterns/EchoChamberScore'
 import CrossPlatformMap from '../components/patterns/CrossPlatformMap'
 import HabitNudgeEngine from '../components/patterns/HabitNudgeEngine'
+import { useYouTubeData } from '../hooks/useYouTubeData'
+import usePatternsData from '../hooks/usePatternsData'
 
 export default function PatternsPage() {
+  // Mounting this hook wires up the sync-detection loop so that when YouTube
+  // classification finishes or a background sync is detected, the React Query
+  // cache entries are automatically invalidated.
+  useYouTubeData()
+
+  const {
+    triggerPatterns,
+    echoChamber,
+    habitNudge,
+    crossPlatform,
+    nudgeFeedback,
+  } = usePatternsData()
+
   return (
     <div className="min-h-screen bg-[#09090B]">
       
@@ -45,10 +60,14 @@ export default function PatternsPage() {
           
           {/* Features grid */}
           <div className="grid grid-cols-1 gap-6">
-            <TriggerPatternDetector />
-            <EchoChamberScore />
-            <CrossPlatformMap />
-            <HabitNudgeEngine />
+            <TriggerPatternDetector data={triggerPatterns.data} isLoading={triggerPatterns.isLoading} />
+            <EchoChamberScore data={echoChamber.data} isLoading={echoChamber.isLoading} />
+            <HabitNudgeEngine data={habitNudge.data} isLoading={habitNudge.isLoading} nudgeFeedback={nudgeFeedback} />
+            <CrossPlatformMap 
+              crossPlatformData={crossPlatform.data} 
+              instagramUploaded={crossPlatform.data?.instagramUploaded}
+              isLoading={crossPlatform.isLoading} 
+            />
           </div>
           
           {/* Bottom padding for mobile */}

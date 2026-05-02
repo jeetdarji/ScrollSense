@@ -9,6 +9,7 @@ import DataVault from '../components/settings/DataVault';
 import AccountSettings from '../components/settings/AccountSettings';
 import NotificationSettings from '../components/settings/NotificationSettings';
 import DeleteAccount from '../components/settings/DeleteAccount';
+import { useSettingsData } from '../hooks/useSettingsData';
 
 const NAV_ITEMS = [
   { id: 'privacy', icon: Shield, label: 'PRIVACY GUIDE' },
@@ -21,16 +22,54 @@ const NAV_ITEMS = [
 
 const SettingsPage = () => {
   const [activeSection, setActiveSection] = useState('privacy');
+  const settingsHooks = useSettingsData();
 
   const renderSection = () => {
+    // Show skeleton if settings are loading, but let privacy page load naturally since it's static
+    if (settingsHooks.isLoadingSettings && activeSection !== 'privacy') {
+      return (
+        <div className="w-full flex flex-col gap-6 animate-pulse">
+          <div className="h-48 bg-[#27272A]/40 border-2 border-[#3F3F46]"></div>
+          <div className="h-48 bg-[#27272A]/40 border-2 border-[#3F3F46]"></div>
+          <div className="h-48 bg-[#27272A]/40 border-2 border-[#3F3F46]"></div>
+        </div>
+      );
+    }
+
     switch (activeSection) {
-      case 'privacy': return <PrivacyEducation />;
-      case 'instagram': return <InstagramDataGuide />;
-      case 'data_vault': return <DataVault />;
-      case 'account': return <AccountSettings />;
-      case 'notifications': return <NotificationSettings />;
-      case 'delete': return <DeleteAccount />;
-      default: return <PrivacyEducation />;
+      case 'privacy': 
+        return <PrivacyEducation />;
+      case 'instagram': 
+        return <InstagramDataGuide 
+          settings={settingsHooks.settings} 
+          deleteInstagramData={settingsHooks.deleteInstagramData} 
+          isDeletingInstagram={settingsHooks.isDeletingInstagram} 
+        />;
+      case 'data_vault': 
+        return <DataVault 
+          settings={settingsHooks.settings} 
+          dataVault={settingsHooks.dataVault} 
+          isLoadingDataVault={settingsHooks.isLoadingDataVault} 
+        />;
+      case 'account': 
+        return <AccountSettings 
+          settings={settingsHooks.settings} 
+          saveAccountSettings={settingsHooks.saveAccountSettings} 
+          isSavingAccount={settingsHooks.isSavingAccount} 
+        />;
+      case 'notifications': 
+        return <NotificationSettings 
+          settings={settingsHooks.settings} 
+          updateNotifications={settingsHooks.saveNotificationPrefs} 
+          isUpdatingNotifications={settingsHooks.isSavingNotifications}
+        />;
+      case 'delete': 
+        return <DeleteAccount 
+          deleteAccount={settingsHooks.deleteAccount} 
+          isDeletingAccount={settingsHooks.isDeletingAccount} 
+        />;
+      default: 
+        return <PrivacyEducation />;
     }
   };
 

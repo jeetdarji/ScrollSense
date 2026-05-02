@@ -1,52 +1,47 @@
 import React, { useState } from 'react';
-import { Users, Search, TrendingDown, CheckCircle, Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee } from 'lucide-react';
+import { Users, Search, TrendingDown, TrendingUp, CheckCircle, Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useCommunityData } from '../../hooks/useCommunityData';
 
 const iconMap = {
-  Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee
+  moon: Moon, sun: Sun, zap: Zap, meh: Meh, timer: Timer, target: Target, calendar: Calendar, coffee: Coffee,
+  Moon, Sun, Zap, Meh, Timer, Target, Calendar, Coffee,
 };
 
-export default function GroupFinder({ openGroups, anonymousNames }) {
+export default function GroupFinder({ openGroups = [] }) {
+  const { joinGroup } = useCommunityData();
   const [joinLoading, setJoinLoading] = useState(null);
   const [searchFilter, setSearchFilter] = useState('');
   const [joined, setJoined] = useState(false);
   const [assignedName, setAssignedName] = useState('');
 
   const filteredGroups = openGroups.filter(g =>
-    g.displayName.toLowerCase().includes(searchFilter.toLowerCase()) ||
-    g.description.toLowerCase().includes(searchFilter.toLowerCase())
+    (g.name?.toLowerCase() || '').includes(searchFilter.toLowerCase()) ||
+    (g.description?.toLowerCase() || '').includes(searchFilter.toLowerCase())
   );
 
-  const totalMembers = openGroups.reduce((s, g) => s + g.memberCount, 0);
+  const totalMembers = openGroups.reduce((s, g) => s + (g.memberCount || 0), 0);
 
   const handleNotifyRequest = () => {
     localStorage.setItem('scrollsense_wants_matched_group', 'true');
     alert('You will be notified when a matched group is ready.');
   };
 
-  const handleJoin = (group) => {
-    setJoinLoading(group.id);
-    
-    setTimeout(() => {
-      const name = anonymousNames[Math.floor(Math.random() * anonymousNames.length)];
-      const myGroup = {
-        ...group,
-        myAnonymousName: name,
-        joinedAt: new Date().toISOString(),
-        weekNumber: 1,
-        memberCount: group.memberCount + 1,
-      };
-      
-      localStorage.setItem('scrollsense_my_group', JSON.stringify(myGroup));
-      setAssignedName(name);
-      setJoinLoading(null);
+  const handleJoin = async (group) => {
+    try {
+      setJoinLoading(group.id);
+      const res = await joinGroup(group.id);
+      setAssignedName(res.membership?.anonymousName || 'YOU');
       setJoined(true);
-      
-      // Delay reload slightly to let user see flash optionally, or just reload
       setTimeout(() => {
         window.location.reload();
       }, 2000);
-    }, 1000);
+    } catch (e) {
+      console.error(e);
+      alert(e.response?.data?.error || 'Failed to join group.');
+    } finally {
+      setJoinLoading(null);
+    }
   };
 
   return (
@@ -152,14 +147,14 @@ export default function GroupFinder({ openGroups, anonymousNames }) {
                           <IconComp size={16} color="#DFE104" />
                         </div>
                         <h3 className="text-base font-bold uppercase tracking-tighter text-[#FAFAFA] leading-tight">
-                          {group.displayName}
+                          {group.name}
                         </h3>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <div className="border border-[#3F3F46] px-2 py-0.5 text-[10px] uppercase text-[#A1A1AA]">
                           {group.memberCount} MEMBERS
                         </div>
-                        {group.type === 'open' && (
+                        {group.isOpen && (
                           <div className="border border-[#DFE104]/30 px-2 py-0.5 text-[10px] uppercase text-[#DFE104]">
                             OPEN
                           </div>

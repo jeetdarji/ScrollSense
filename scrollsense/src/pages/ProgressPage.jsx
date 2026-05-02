@@ -2,8 +2,11 @@ import React from 'react';
 import DashboardNav from '../components/dashboard/DashboardNav';
 import TimeRefundTracker from '../components/progress/TimeRefundTracker';
 import BehavioralTrendGraph from '../components/progress/BehavioralTrendGraph';
+import { useProgressData } from '../hooks/useProgressData';
 
 export default function ProgressPage() {
+  const { timeRefund, timeRefundLoading, trends, trendsLoading } = useProgressData();
+
   return (
     <div className="min-h-screen bg-[#09090B]">
       
@@ -41,8 +44,8 @@ export default function ProgressPage() {
           <div className="border-b-2 border-[#3F3F46] mt-6 mb-10" />
           
           <div className="grid grid-cols-1 gap-6">
-            <TimeRefundTracker />
-            <BehavioralTrendGraph />
+            <TimeRefundTracker data={timeRefund} isLoading={timeRefundLoading} />
+            <BehavioralTrendGraph data={trends} isLoading={trendsLoading} />
           </div>
           
           <div className="pb-16" />

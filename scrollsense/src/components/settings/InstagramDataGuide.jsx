@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
-import { HelpCircle, Camera } from 'lucide-react';
+import React from 'react';
+import { HelpCircle, Camera, Loader2 } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import dayjs from 'dayjs';
 
-const InstagramDataGuide = () => {
+const InstagramDataGuide = ({ settings, deleteInstagramData, isDeletingInstagram }) => {
   const [instagramProcessed] = useLocalStorage('scrollsense_instagram_processed', null);
-  const [instagramTopics] = useLocalStorage('scrollsense_instagram_topics', []);
-  const hasInstagram = instagramProcessed !== null;
+  
+  // Explicitly rely on the backend source of truth for "has Instagram"
+  const hasInstagram = settings?.instagramUploaded;
+  const instagramTopics = settings?.instagramTopics || [];
 
   return (
     <div className="flex flex-col gap-6 w-full">
@@ -37,7 +39,7 @@ const InstagramDataGuide = () => {
               </div>
             </div>
             <div className="pl-5 text-xs text-[#A1A1AA] leading-relaxed">
-              No. Your Instagram files are processed entirely in your browser — the same browser tab you're reading this in. The file is opened, the data is parsed, the result is saved locally, and the file is never sent anywhere. You can verify this by turning off your WiFi after uploading and checking — ScrollSense still works with the data.
+              No. Your Instagram files are processed entirely in your browser. The file is opened, the data is parsed, the backend only gets generalized statistics (like your top topics), and the physical file is never sent anywhere.
             </div>
           </div>
 
@@ -49,7 +51,7 @@ const InstagramDataGuide = () => {
               </div>
             </div>
             <div className="pl-5 text-xs text-[#A1A1AA] leading-relaxed">
-              We genuinely cannot see it. The reel URL exists in your export file, but our code throws it away immediately — we only extract the creator's public username and the timestamp. What the video was about is never known to us. Not stored. Not sent. Gone.
+              We genuinely cannot see it. The reel URL exists in your export file, but our code throws it away immediately — we only extract the creator's public username to assign a category. What the video was actually about is never known to us. Not stored. Not sent. Gone.
             </div>
           </div>
         </div>
@@ -58,7 +60,7 @@ const InstagramDataGuide = () => {
       {/* SECTION 2: WHAT THE FILE ACTUALLY LOOKS LIKE */}
       <div className="border-2 border-[#3F3F46] bg-[#09090B] p-5 rounded-none">
         <h3 className="text-sm font-bold uppercase tracking-tighter text-[#FAFAFA] m-0 mb-2">
-          EXACTLY WHAT YOUR FILE CONTAINS
+          EXACTLY WHAT YOUR EXPORT CONTAINS
         </h3>
         <p className="text-xs text-[#3F3F46] uppercase tracking-wider mb-4">
           This is a real entry from a videos_watched.json file
@@ -103,7 +105,7 @@ const InstagramDataGuide = () => {
             <div className="text-xs font-mono text-[#3F3F46]">url: instagram.com/p/DK...</div>
             <div className="text-xs font-mono text-[#3F3F46] mt-1">name: Kussh Sachdev</div>
             <div className="text-xs font-mono text-[#3F3F46] mt-1">fbid: 17841407969...</div>
-            <div className="text-[10px] text-[#3F3F46] mt-2">Specific reel + full name + internal ID</div>
+            <div className="text-[10px] text-[#3F3F46] mt-2">Specific reel + full explicit name</div>
           </div>
         </div>
       </div>
@@ -117,33 +119,33 @@ const InstagramDataGuide = () => {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div>
-              <div className="text-2xl font-bold text-[#FAFAFA]">{instagramProcessed.totalVideos}</div>
+              <div className="text-2xl font-bold text-[#FAFAFA]">{instagramProcessed?.totalVideos || '—'}</div>
               <div className="text-[10px] uppercase text-[#A1A1AA] mt-1">REELS ANALYZED</div>
             </div>
             <div>
               <div className="text-base font-bold text-[#FAFAFA] flex items-end h-[32px] mb-1">
-                {instagramProcessed.dateRange || 'N/A'}
+                {instagramProcessed?.dateRange || 'N/A'}
               </div>
               <div className="text-[10px] uppercase text-[#A1A1AA] mt-1">DATA COVERS</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-[#FAFAFA]">
-                {instagramProcessed.echoChamberData?.uniqueCreators || 0}
+                {instagramProcessed?.echoChamberData?.uniqueCreators || '—'}
               </div>
               <div className="text-[10px] uppercase text-[#A1A1AA] mt-1">UNIQUE CREATORS</div>
             </div>
             <div>
               <div className="text-base font-bold text-[#FAFAFA] flex items-end h-[32px] mb-1">
-                {instagramProcessed.processedAt ? dayjs(instagramProcessed.processedAt).format('MMM D, YYYY') : 'N/A'}
+                {settings?.instagramLastUploadAt ? dayjs(settings.instagramLastUploadAt).format('MMM D, YYYY') : 'N/A'}
               </div>
-              <div className="text-[10px] uppercase text-[#A1A1AA] mt-1">PROCESSED ON</div>
+              <div className="text-[10px] uppercase text-[#A1A1AA] mt-1">BACKED UP ON</div>
             </div>
           </div>
 
           {instagramTopics && instagramTopics.length > 0 && (
             <div className="mb-6">
               <div className="text-[10px] uppercase text-[#A1A1AA] mb-3">
-                INSTAGRAM SAYS YOU'RE INTERESTED IN
+                SCROLLSENSE SAYS YOU'RE INTERESTED IN
               </div>
               <div className="flex flex-wrap gap-2">
                 {instagramTopics.slice(0, 15).map((topic, i) => (
@@ -169,15 +171,15 @@ const InstagramDataGuide = () => {
             </button>
             <button 
               onClick={() => {
-                if(window.confirm('Are you sure you want to delete your Instagram data? This only removes it from ScrollSense.')) {
-                  localStorage.removeItem('scrollsense_instagram_processed');
-                  localStorage.removeItem('scrollsense_instagram_topics');
-                  window.location.reload();
+                if(window.confirm('Are you sure you want to completely erase your Instagram metrics? This deletes it off the ScrollSense backend permanently.')) {
+                  deleteInstagramData();
                 }
               }}
-              className="border border-red-900/50 px-5 py-2.5 text-xs uppercase tracking-tighter text-red-400 bg-transparent hover:bg-red-900/20 transition-all rounded-none font-bold"
+              disabled={isDeletingInstagram}
+              className="border border-red-900/50 px-5 py-2.5 text-xs uppercase tracking-tighter text-red-400 bg-transparent hover:bg-red-900/20 transition-all rounded-none font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              DELETE INSTAGRAM DATA ONLY
+              {isDeletingInstagram ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {isDeletingInstagram ? "DELETING..." : "DELETE INSTAGRAM DATA ONLY"}
             </button>
           </div>
         </div>
